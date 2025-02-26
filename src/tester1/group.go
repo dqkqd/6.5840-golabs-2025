@@ -85,7 +85,7 @@ func makeSrvGrp(net *labrpc.Network, gid Tgid, n int, mks FstartServer) *ServerG
 		connected: make([]bool, n),
 		mks:       mks,
 	}
-	for i, _ := range sg.srvs {
+	for i := range sg.srvs {
 		sg.srvs[i] = makeServer(net, gid, n)
 	}
 	sg.servernames = make([]string, n)
@@ -125,14 +125,14 @@ func (sg *ServerGrp) SrvNamesTo(to []int) []string {
 
 func (sg *ServerGrp) all() []int {
 	all := make([]int, len(sg.srvs))
-	for i, _ := range sg.srvs {
+	for i := range sg.srvs {
 		all[i] = i
 	}
 	return all
 }
 
 func (sg *ServerGrp) ConnectAll() {
-	for i, _ := range sg.srvs {
+	for i := range sg.srvs {
 		sg.ConnectOne(i)
 	}
 }
@@ -268,13 +268,13 @@ func (sg *ServerGrp) ShutdownServer(i int) {
 }
 
 func (sg *ServerGrp) Shutdown() {
-	for i, _ := range sg.srvs {
+	for i := range sg.srvs {
 		sg.ShutdownServer(i)
 	}
 }
 
 func (sg *ServerGrp) start() {
-	for i, _ := range sg.srvs {
+	for i := range sg.srvs {
 		sg.StartServer(i)
 	}
 }
