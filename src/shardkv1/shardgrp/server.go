@@ -3,30 +3,24 @@ package shardgrp
 import (
 	"sync/atomic"
 
-
 	"6.5840/kvraft1/rsm"
 	"6.5840/kvsrv1/rpc"
 	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/shardkv1/shardgrp/shardrpc"
-	"6.5840/tester1"
 )
-
 
 type KVServer struct {
 	gid  tester.Tgid
 	me   int
 	dead int32 // set by Kill()
 	rsm  *rsm.RSM
-
 }
-
 
 func (kv *KVServer) DoOp(req any) any {
 	// Your code here
 	return nil
 }
-
 
 func (kv *KVServer) Snapshot() []byte {
 	// Your code here

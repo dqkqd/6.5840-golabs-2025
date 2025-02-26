@@ -7,8 +7,6 @@ import (
 	"runtime/debug"
 	"slices"
 	"testing"
-
-	"6.5840/tester1"
 )
 
 type Tshid int
@@ -122,7 +120,7 @@ func least(c *ShardConfig) tester.Tgid {
 func (c *ShardConfig) Rebalance() {
 	// if no groups, un-assign all shards
 	if len(c.Groups) < 1 {
-		for s, _ := range c.Shards {
+		for s := range c.Shards {
 			c.Shards[s] = 0
 		}
 		return
@@ -256,7 +254,7 @@ func (cfg *ShardConfig) CheckConfig(t *testing.T, groups []tester.Tgid) {
 	}
 	min := 257
 	max := 0
-	for g, _ := range cfg.Groups {
+	for g := range cfg.Groups {
 		if counts[g] > max {
 			max = counts[g]
 		}

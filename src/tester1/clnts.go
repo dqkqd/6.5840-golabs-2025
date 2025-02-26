@@ -138,7 +138,7 @@ func (clnts *Clnts) cleanup() {
 	clnts.mu.Lock()
 	defer clnts.mu.Unlock()
 
-	for clnt, _ := range clnts.clerks {
+	for clnt := range clnts.clerks {
 		clnt.remove()
 	}
 	clnts.clerks = nil

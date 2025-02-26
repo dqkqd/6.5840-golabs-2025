@@ -6,9 +6,7 @@ import (
 	"time"
 
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
 	"6.5840/shardkv1/shardcfg"
-	"6.5840/tester1"
 	// "6.5840/shardkv1/shardctrler"
 )
 
@@ -301,4 +299,3 @@ func TestRecoverCtrler5B(t *testing.T) {
 		ts.partitionCtrler(ck, ka, va)
 	}
 }
-

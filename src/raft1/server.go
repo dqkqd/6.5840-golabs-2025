@@ -9,8 +9,6 @@ import (
 	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
-	"6.5840/tester1"
-
 )
 
 const (
@@ -18,7 +16,6 @@ const (
 )
 
 var useRaftStateMachine bool // to plug in another raft besided raft1
-
 
 type rfsrv struct {
 	ts          *Test

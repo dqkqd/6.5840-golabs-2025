@@ -2,8 +2,6 @@ package shardcfg
 
 import (
 	"testing"
-
-	"6.5840/tester1"
 )
 
 func check_same_config(t *testing.T, c1 ShardConfig, c2 ShardConfig) {
@@ -39,10 +37,10 @@ func TestBasic(t *testing.T) {
 	cfg := MakeShardConfig()
 	cfg.CheckConfig(t, []tester.Tgid{})
 
-	cfg.JoinBalance(map[tester.Tgid][]string{Gid1: []string{"x", "y", "z"}})
+	cfg.JoinBalance(map[tester.Tgid][]string{Gid1: {"x", "y", "z"}})
 	cfg.CheckConfig(t, []tester.Tgid{Gid1})
 
-	cfg.JoinBalance(map[tester.Tgid][]string{Gid2: []string{"a", "b", "c"}})
+	cfg.JoinBalance(map[tester.Tgid][]string{Gid2: {"a", "b", "c"}})
 	cfg.CheckConfig(t, []tester.Tgid{Gid1, Gid2})
 
 	sa1 := cfg.Groups[Gid1]

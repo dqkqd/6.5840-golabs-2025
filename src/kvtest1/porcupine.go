@@ -10,8 +10,6 @@ import (
 	"github.com/anishathalye/porcupine"
 
 	"6.5840/kvsrv1/rpc"
-	"6.5840/models1"
-	"6.5840/tester1"
 )
 
 const linearizabilityCheckTimeout = 1 * time.Second
@@ -96,7 +94,7 @@ func checkPorcupine(
 			// Save the vis file in a temporary file.
 			file, err = os.CreateTemp("", "porcupine-*.html")
 		} else {
-			file, err = os.OpenFile(fpath, os.O_RDWR | os.O_CREATE | os.O_TRUNC, 0644)
+			file, err = os.OpenFile(fpath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 		}
 		if err != nil {
 			fmt.Printf("info: failed to open visualization file %s (%v)\n", fpath, err)
@@ -123,7 +121,7 @@ func checkPorcupine(
 			// Save the vis file in a temporary file.
 			file, err = os.CreateTemp("", "porcupine-*.html")
 		} else {
-			file, err = os.OpenFile(fpath, os.O_RDWR | os.O_CREATE | os.O_TRUNC, 0644)
+			file, err = os.OpenFile(fpath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 		}
 		if err != nil {
 			fmt.Printf("info: failed to open visualization file %s (%v)\n", fpath, err)
