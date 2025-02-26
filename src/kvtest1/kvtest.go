@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"6.5840/kvsrv1/rpc"
-	"6.5840/tester1"
 )
 
 // The tester generously allows solutions to complete elections in one second
@@ -228,7 +227,7 @@ func (ts *Test) OnePut(me int, ck IKVClerk, key string, ver rpc.Tversion) (rpc.T
 
 // repartition the servers periodically
 func (ts *Test) Partitioner(gid tester.Tgid, ch chan bool) {
-	//log.Printf("partioner %v", gid)
+	// log.Printf("partioner %v", gid)
 	defer func() { ch <- true }()
 	for true {
 		select {

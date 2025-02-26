@@ -8,24 +8,19 @@ import (
 	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
-	"6.5840/tester1"
 )
 
-type Inc struct {
-}
+type Inc struct{}
 
 type IncRep struct {
 	N int
 }
 
-type Null struct {
-}
+type Null struct{}
 
-type NullRep struct {
-}
+type NullRep struct{}
 
-type Dec struct {
-}
+type Dec struct{}
 
 type rsmSrv struct {
 	ts      *Test
@@ -36,7 +31,7 @@ type rsmSrv struct {
 }
 
 func makeRsmSrv(ts *Test, srv int, ends []*labrpc.ClientEnd, persister *tester.Persister, snapshot bool) *rsmSrv {
-	//log.Printf("mksrv %d", srv)
+	// log.Printf("mksrv %d", srv)
 	labgob.Register(Op{})
 	labgob.Register(Inc{})
 	labgob.Register(IncRep{})
@@ -52,7 +47,7 @@ func makeRsmSrv(ts *Test, srv int, ends []*labrpc.ClientEnd, persister *tester.P
 }
 
 func (rs *rsmSrv) DoOp(req any) any {
-	//log.Printf("%d: DoOp: %T(%v)", rs.me, req, req)
+	// log.Printf("%d: DoOp: %T(%v)", rs.me, req, req)
 	switch req.(type) {
 	case Inc:
 		rs.mu.Lock()
@@ -69,7 +64,7 @@ func (rs *rsmSrv) DoOp(req any) any {
 }
 
 func (rs *rsmSrv) Snapshot() []byte {
-	//log.Printf("%d: snapshot", rs.me)
+	// log.Printf("%d: snapshot", rs.me)
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rs.counter)
@@ -82,14 +77,14 @@ func (rs *rsmSrv) Restore(data []byte) {
 	if d.Decode(&rs.counter) != nil {
 		log.Fatalf("%v couldn't decode counter", rs.me)
 	}
-	//log.Printf("%d: restore %d", rs.me, rs.counter)
+	// log.Printf("%d: restore %d", rs.me, rs.counter)
 }
 
 func (rs *rsmSrv) Kill() {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	//log.Printf("kill %d", rs.me)
-	//rs.rsm.Kill()
+	// log.Printf("kill %d", rs.me)
+	// rs.rsm.Kill()
 	rs.rsm = nil
 }
 

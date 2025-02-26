@@ -61,4 +61,3 @@ func (sck *ShardCtrler) Query() *shardcfg.ShardConfig {
 	// Your code here.
 	return nil
 }
-

@@ -7,17 +7,21 @@ package labgob
 // about non-capitalized field names.
 //
 
-import "encoding/gob"
-import "io"
-import "reflect"
-import "fmt"
-import "sync"
-import "unicode"
-import "unicode/utf8"
+import (
+	"encoding/gob"
+	"fmt"
+	"io"
+	"reflect"
+	"sync"
+	"unicode"
+	"unicode/utf8"
+)
 
-var mu sync.Mutex
-var errorCount int // for TestCapital
-var checked map[reflect.Type]bool
+var (
+	mu         sync.Mutex
+	errorCount int // for TestCapital
+	checked    map[reflect.Type]bool
+)
 
 type LabEncoder struct {
 	gob *gob.Encoder
@@ -112,13 +116,11 @@ func checkType(t reflect.Type) {
 	}
 }
 
-//
 // warn if the value contains non-default values,
 // as it would if one sent an RPC but the reply
 // struct was already modified. if the RPC reply
 // contains default values, GOB won't overwrite
 // the non-default value.
-//
 func checkDefault(value interface{}) {
 	if value == nil {
 		return

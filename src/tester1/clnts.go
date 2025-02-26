@@ -51,7 +51,7 @@ func (clnt *Clnt) makeEnd(server string) end {
 	}
 
 	name := Randstring(20)
-	//log.Printf("%p: makEnd %v %v allowed %t", clnt, name, server, clnt.allowedL(server))
+	// log.Printf("%p: makEnd %v %v allowed %t", clnt, name, server, clnt.allowedL(server))
 	end := end{name: name, end: clnt.net.MakeEnd(name)}
 	clnt.net.Connect(name, server)
 	if clnt.allowedL(server) {
@@ -75,7 +75,7 @@ func (clnt *Clnt) ConnectAll() {
 	defer clnt.mu.Unlock()
 
 	for _, e := range clnt.ends {
-		//log.Printf("%p: ConnectAll: enable %v", clnt, e.name)
+		// log.Printf("%p: ConnectAll: enable %v", clnt, e.name)
 		clnt.net.Enable(e.name, true)
 	}
 	clnt.srvs = nil
@@ -100,7 +100,7 @@ func (clnt *Clnt) Disconnect(srv string) {
 
 	for s, e := range clnt.ends {
 		if s == srv {
-			//log.Printf("%p: Disconnect: disable %v %s", clnt, srv)
+			// log.Printf("%p: Disconnect: disable %v %s", clnt, srv)
 			clnt.net.Enable(e.name, false)
 		}
 	}
@@ -111,7 +111,7 @@ func (clnt *Clnt) DisconnectAll() {
 	defer clnt.mu.Unlock()
 
 	for _, e := range clnt.ends {
-		//log.Printf("%p: Disconnectall: disable %v", clnt, e.name)
+		// log.Printf("%p: Disconnectall: disable %v", clnt, e.name)
 		clnt.net.Enable(e.name, false)
 	}
 	clnt.srvs = make([]string, 0)
@@ -163,7 +163,7 @@ func (clnts *Clnts) cleanup() {
 	clnts.mu.Lock()
 	defer clnts.mu.Unlock()
 
-	for clnt, _ := range clnts.clerks {
+	for clnt := range clnts.clerks {
 		clnt.remove()
 	}
 	clnts.clerks = nil
