@@ -1,9 +1,5 @@
 package lock
 
-import (
-	"6.5840/kvtest1"
-)
-
 type Lock struct {
 	// IKVClerk is a go interface for k/v clerks: the interface hides
 	// the specific Clerk type of ck but promises that ck supports

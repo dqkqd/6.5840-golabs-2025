@@ -8,14 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"6.5840/kvraft1"
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
 	"6.5840/labrpc"
 	"6.5840/shardkv1/shardcfg"
 	"6.5840/shardkv1/shardctrler"
 	"6.5840/shardkv1/shardgrp"
-	"6.5840/tester1"
 )
 
 type Test struct {

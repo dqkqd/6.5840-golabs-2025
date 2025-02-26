@@ -5,20 +5,15 @@ package shardctrler
 //
 
 import (
-
 	"sync/atomic"
 
-	"6.5840/kvraft1"
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
 	"6.5840/shardkv1/shardcfg"
-	"6.5840/tester1"
 )
 
 const (
 	ErrDeposed = "ErrDeposed"
 )
-
 
 // The query clerk must support only Query(); it is intended for use
 // by shardkv clerks to read the current configuration (see
@@ -65,7 +60,6 @@ func MakeShardCtrlerClerk(clnt *tester.Clnt, servers []string) *ShardCtrlerClerk
 	return sck
 }
 
-
 // Called once by the tester to supply the first configuration.  You
 // can marshal ShardConfig into a string using shardcfg.String(), and
 // then Put it in the kvraft group for the controller at version 0.
@@ -106,10 +100,8 @@ func (sck *ShardCtrlerClerk) isDeposed() bool {
 	return z == 1
 }
 
-
 // Return the current configuration
 func (sck *ShardCtrlerClerk) Query() (*shardcfg.ShardConfig, rpc.Tversion, rpc.Err) {
 	// Your code here.
 	return nil, 0, ""
 }
-

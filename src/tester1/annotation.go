@@ -1,15 +1,15 @@
 package tester
 
 import (
-	"sync"
+	"fmt"
 	"os"
 	"os/signal"
-	"fmt"
-	"time"
-	"strings"
 	"slices"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/anishathalye/porcupine"
-	"6.5840/models1"
 )
 
 ///
@@ -70,7 +70,7 @@ const (
 	TAG_INFO      string = "$ Test Info"
 )
 
-func (cfg *Config) RetrieveAnnotations() []porcupine.Annotation{
+func (cfg *Config) RetrieveAnnotations() []porcupine.Annotation {
 	annotations := annotation.retrieve()
 	return annotations
 }
@@ -136,7 +136,7 @@ func AnnotateCheckerBegin(details string) {
 	defer finfo.mu.Unlock()
 
 	finfo.ckbegin = CheckerBegin{
-		ts: timestamp(),
+		ts:      timestamp(),
 		details: details,
 	}
 }
@@ -199,7 +199,7 @@ func AnnotateConnection(connection []bool) {
 
 func annotateFault() {
 	trues := make([]bool, finfo.nservers)
-	for id := range(trues) {
+	for id := range trues {
 		trues[id] = true
 	}
 	falses := make([]bool, finfo.nservers)
@@ -215,7 +215,7 @@ func annotateFault() {
 	crashes := make([]int, 0)
 	var builder strings.Builder
 	builder.WriteString("partition = ")
-	for id, connected := range(finfo.connected) {
+	for id, connected := range finfo.connected {
 		if finfo.crashed[id] {
 			crashes = append(crashes, id)
 			continue
@@ -249,7 +249,7 @@ func AnnotateShutdown(servers []int) {
 	defer finfo.mu.Unlock()
 
 	changed := false
-	for _, id := range(servers) {
+	for _, id := range servers {
 		if !finfo.crashed[id] {
 			changed = true
 		}
@@ -270,7 +270,7 @@ func AnnotateShutdownAll() {
 	finfo.mu.Unlock()
 
 	servers := make([]int, n)
-	for i := range(servers) {
+	for i := range servers {
 		servers[i] = i
 	}
 	AnnotateShutdown(servers)
@@ -281,7 +281,7 @@ func AnnotateRestart(servers []int) {
 	defer finfo.mu.Unlock()
 
 	changed := false
-	for _, id := range(servers) {
+	for _, id := range servers {
 		if finfo.crashed[id] {
 			changed = true
 		}
@@ -302,7 +302,7 @@ func AnnotateRestartAll() {
 	finfo.mu.Unlock()
 
 	servers := make([]int, n)
-	for i := range(servers) {
+	for i := range servers {
 		servers[i] = i
 	}
 	AnnotateRestart(servers)
@@ -320,13 +320,13 @@ func (an *Annotation) retrieve() []porcupine.Annotation {
 	an.mu.Lock()
 	x := an.annotations
 	t := timestamp()
-	for tag, cont := range(an.continuous) {
+	for tag, cont := range an.continuous {
 		a := porcupine.Annotation{
-			Tag: tag,
-			Start: cont.start,
-			End: t,
-			Description: cont.desp,
-			Details: cont.details,
+			Tag:             tag,
+			Start:           cont.start,
+			End:             t,
+			Description:     cont.desp,
+			Details:         cont.details,
 			BackgroundColor: cont.bgcolor,
 		}
 		x = append(x, a)
@@ -350,10 +350,10 @@ func (an *Annotation) annotatePointColor(
 	an.mu.Lock()
 	t := timestamp()
 	a := porcupine.Annotation{
-		Tag: tag,
-		Start: t,
-		Description: desp,
-		Details: details,
+		Tag:             tag,
+		Start:           t,
+		Description:     desp,
+		Details:         details,
 		BackgroundColor: bgcolor,
 	}
 	an.annotations = append(an.annotations, a)
@@ -365,11 +365,11 @@ func (an *Annotation) annotateIntervalColor(
 ) {
 	an.mu.Lock()
 	a := porcupine.Annotation{
-		Tag: tag,
-		Start: start,
-		End: timestamp(),
-		Description: desp,
-		Details: details,
+		Tag:             tag,
+		Start:           start,
+		End:             timestamp(),
+		Description:     desp,
+		Details:         details,
 		BackgroundColor: bgcolor,
 	}
 	an.annotations = append(an.annotations, a)
@@ -387,8 +387,8 @@ func (an *Annotation) annotateContinuousColor(
 		// The first continuous annotation for tag. Simply add it to the
 		// continuous map.
 		an.continuous[tag] = Continuous{
-			start: timestamp(),
-			desp: desp,
+			start:   timestamp(),
+			desp:    desp,
 			details: details,
 			bgcolor: bgcolor,
 		}
@@ -399,11 +399,11 @@ func (an *Annotation) annotateContinuousColor(
 	// annotation and add this one to the continuous map.
 	t := timestamp()
 	aprev := porcupine.Annotation{
-		Tag: tag,
-		Start: cont.start,
-		End: t,
-		Description: cont.desp,
-		Details: cont.details,
+		Tag:             tag,
+		Start:           cont.start,
+		End:             t,
+		Description:     cont.desp,
+		Details:         cont.details,
 		BackgroundColor: cont.bgcolor,
 	}
 	an.annotations = append(an.annotations, aprev)
@@ -412,8 +412,8 @@ func (an *Annotation) annotateContinuousColor(
 		// timestamp of another event, Porcupine seems to overlap the two
 		// events. We add a delta (1000) as a workaround, but remove this once
 		// this issue is resolved.
-		start: t + 1000,
-		desp: desp,
+		start:   t + 1000,
+		desp:    desp,
 		details: details,
 		bgcolor: bgcolor,
 	}
@@ -432,11 +432,11 @@ func (an *Annotation) annotateContinuousEnd(tag string) {
 	// End the on-going continuous annotation for tag.
 	t := timestamp()
 	aprev := porcupine.Annotation{
-		Tag: tag,
-		Start: cont.start,
-		End: t,
-		Description: cont.desp,
-		Details: cont.details,
+		Tag:             tag,
+		Start:           cont.start,
+		End:             t,
+		Description:     cont.desp,
+		Details:         cont.details,
 		BackgroundColor: cont.bgcolor,
 	}
 	an.annotations = append(an.annotations, aprev)
@@ -463,11 +463,11 @@ func (an *Annotation) cleanup(failed bool, end string) {
 	// issue. Consider removing this once the issue is fixed.
 	t := timestamp()
 	aend := porcupine.Annotation{
-		Tag: TAG_INFO,
-		Start: t,
-		End: t + 1000,
-		Description: end,
-		Details: end,
+		Tag:             TAG_INFO,
+		Start:           t,
+		End:             t + 1000,
+		Description:     end,
+		Details:         end,
 		BackgroundColor: COLOR_INFO,
 	}
 	annotations = append(annotations, aend)
@@ -479,7 +479,7 @@ func (an *Annotation) cleanup(failed bool, end string) {
 		// Save the vis file in a temporary file.
 		file, err = os.CreateTemp("", "porcupine-*.html")
 	} else {
-		file, err = os.OpenFile(fpath, os.O_RDWR | os.O_CREATE | os.O_TRUNC, 0644)
+		file, err = os.OpenFile(fpath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	}
 	if err != nil {
 		fmt.Printf("info: failed to open visualization file %s (%v)\n", fpath, err)
@@ -496,9 +496,9 @@ func (an *Annotation) cleanup(failed bool, end string) {
 
 func mkAnnotation() *Annotation {
 	an := Annotation{
-		mu: new(sync.Mutex),
+		mu:          new(sync.Mutex),
 		annotations: make([]porcupine.Annotation, 0),
-		continuous: make(map[string]Continuous),
+		continuous:  make(map[string]Continuous),
 	}
 
 	return &an
@@ -506,15 +506,15 @@ func mkAnnotation() *Annotation {
 
 func mkFrameworkInfo(nservers int) *FrameworkInfo {
 	conn := make([]bool, nservers)
-	for id := range(conn) {
+	for id := range conn {
 		conn[id] = true
 	}
 
 	finfo := FrameworkInfo{
-		mu: new(sync.Mutex),
-		nservers: nservers,
+		mu:        new(sync.Mutex),
+		nservers:  nservers,
 		connected: conn,
-		crashed: make([]bool, nservers),
+		crashed:   make([]bool, nservers),
 	}
 
 	return &finfo
@@ -524,7 +524,7 @@ func captureSignal() struct{} {
 	// Capture SIGINT to visualize on interruption.
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
-	go func(){
+	go func() {
 		for range c {
 			annotation.cleanup(true, "interrupted")
 			os.Exit(1)

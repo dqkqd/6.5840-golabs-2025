@@ -11,7 +11,6 @@ import (
 
 	"6.5840/labrpc"
 	"6.5840/raftapi"
-	"6.5840/tester1"
 )
 
 type Test struct {
@@ -111,7 +110,7 @@ func (ts *Test) checkTerms() int {
 				term = xterm
 			} else if term != xterm {
 				details := fmt.Sprintf("node ids -> terms = { %v -> %v; %v -> %v }",
-					i - 1, term, i, xterm)
+					i-1, term, i, xterm)
 				tester.AnnotateCheckerFailure("term disagreed", details)
 				ts.Fatalf("servers disagree on term")
 			}
