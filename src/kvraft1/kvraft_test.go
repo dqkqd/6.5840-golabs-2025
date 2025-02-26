@@ -2,14 +2,13 @@ package kvraft
 
 import (
 	//"log"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
-	"fmt"
 
 	"6.5840/kvraft1/rsm"
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
 	tester "6.5840/tester1"
 )
 
@@ -73,7 +72,7 @@ func (ts *Test) GenericTest() {
 
 		if ts.partitions {
 			ch_partitioner <- true
-			//log.Printf("wait for partitioner\n")
+			// log.Printf("wait for partitioner\n")
 			<-ch_partitioner
 			// reconnect network and submit a request. A client may
 			// have submitted a request in a minority.  That request

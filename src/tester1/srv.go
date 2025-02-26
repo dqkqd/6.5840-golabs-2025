@@ -52,7 +52,7 @@ func (s *Server) connect(sg *ServerGrp, to []int) {
 	defer s.mu.Unlock()
 	for j := 0; j < len(to); j++ {
 		if sg.IsConnected(to[j]) {
-			//log.Printf("connect %d to %d (%v)", s.id, to[j], s.endNames[to[j]])
+			// log.Printf("connect %d to %d (%v)", s.id, to[j], s.endNames[to[j]])
 			endname := s.endNames[to[j]]
 			s.net.Enable(endname, true)
 		}

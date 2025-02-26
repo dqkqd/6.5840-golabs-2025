@@ -2,15 +2,14 @@ package rsm
 
 import (
 	//"log"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
-	"fmt"
 
 	"6.5840/kvsrv1/rpc"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
-	"6.5840/tester1"
 )
 
 type Test struct {
@@ -81,7 +80,7 @@ func (ts *Test) onePartition(p []int, req any) any {
 						ts.mu.Lock()
 						ts.leader = index
 						ts.mu.Unlock()
-						//log.Printf("leader = %d", ts.leader)
+						// log.Printf("leader = %d", ts.leader)
 						return rep
 					}
 				}
@@ -89,7 +88,7 @@ func (ts *Test) onePartition(p []int, req any) any {
 			index = (index + 1) % len(ts.srvs)
 		}
 		time.Sleep(50 * time.Millisecond)
-		//log.Printf("try again: no leader")
+		// log.Printf("try again: no leader")
 	}
 	return nil
 }
@@ -143,13 +142,13 @@ func (ts *Test) countValue(v int) int {
 }
 
 func (ts *Test) disconnectLeader() int {
-	//log.Printf("disconnect %d", ts.leader)
+	// log.Printf("disconnect %d", ts.leader)
 	ts.g.DisconnectAll(ts.leader)
 	return ts.leader
 }
 
 func (ts *Test) connect(i int) {
-	//log.Printf("connect %d", i)
+	// log.Printf("connect %d", i)
 	ts.g.ConnectOne(i)
 }
 

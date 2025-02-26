@@ -10,15 +10,12 @@ import (
 	"time"
 
 	"6.5840/kvraft1/rsm"
-	"6.5840/kvsrv1"
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
 	"6.5840/labrpc"
 	"6.5840/shardkv1/shardcfg"
 	"6.5840/shardkv1/shardctrler"
 	"6.5840/shardkv1/shardctrler/param"
 	"6.5840/shardkv1/shardgrp"
-	"6.5840/tester1"
 )
 
 type Test struct {
@@ -283,7 +280,7 @@ func (ts *Test) killCtrler(ck kvtest.IKVClerk, gid tester.Tgid, ka, va []string)
 				state = LEAVE
 				ts.leaveGroups(sck, []tester.Tgid{ngid})
 			} else {
-				//log.Printf("deposed")
+				// log.Printf("deposed")
 				return
 			}
 		}
@@ -293,14 +290,14 @@ func (ts *Test) killCtrler(ck kvtest.IKVClerk, gid tester.Tgid, ka, va []string)
 	d := time.Duration(r) * time.Millisecond
 	time.Sleep(d)
 
-	//log.Printf("shutdown gid %d after %dms", gid, r)
+	// log.Printf("shutdown gid %d after %dms", gid, r)
 	ts.Group(gid).Shutdown()
 
 	// sleep for a while to get the chance for the controler to get stuck
 	// in join or leave, because gid is down
 	time.Sleep(NSLEEP * time.Second)
 
-	//log.Printf("disconnect sck %v ngid %d num %d state %d", d, ngid, num, state)
+	// log.Printf("disconnect sck %v ngid %d num %d state %d", d, ngid, num, state)
 
 	// partition controller
 	clnt.DisconnectAll()
@@ -321,7 +318,7 @@ func (ts *Test) killCtrler(ck kvtest.IKVClerk, gid tester.Tgid, ka, va []string)
 	if state == LEAVE {
 		s = "leave"
 	}
-	//log.Printf("%v cfg %v recovered %s", s, cfg, s)
+	// log.Printf("%v cfg %v recovered %s", s, cfg, s)
 
 	if cfg.Num <= num {
 		ts.Fatalf("didn't recover; expected %d > %d", num, cfg.Num)
@@ -344,7 +341,7 @@ func (ts *Test) killCtrler(ck kvtest.IKVClerk, gid tester.Tgid, ka, va []string)
 	sck0.ExitController()
 
 	if ts.leases {
-		//log.Printf("reconnect old controller")
+		// log.Printf("reconnect old controller")
 
 		// reconnect old controller, which should bail out, because
 		// it has been superseded.
@@ -376,7 +373,7 @@ func (ts *Test) electCtrler(ck kvtest.IKVClerk, ka, va []string) {
 				ngid := ts.newGid()
 				sck := ts.makeShardCtrler()
 				sck.InitController()
-				//log.Printf("%d(%p): join/leave %v", i, sck, ngid)
+				// log.Printf("%d(%p): join/leave %v", i, sck, ngid)
 				ts.joinGroups(sck, []tester.Tgid{ngid})
 				if ok := ts.checkMember(sck, ngid); ok {
 					if ok := ts.leaveGroups(sck, []tester.Tgid{ngid}); !ok {
@@ -402,5 +399,4 @@ func (ts *Test) electCtrler(ck kvtest.IKVClerk, ka, va []string) {
 	for i := 0; i < len(ka); i++ {
 		ts.CheckGet(ck, ka[i], va[i], rpc.Tversion(1))
 	}
-
 }

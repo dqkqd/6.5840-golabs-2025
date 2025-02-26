@@ -3,9 +3,7 @@ package kvraft
 import (
 	"testing"
 
-	"6.5840/kvtest1"
 	"6.5840/labrpc"
-	"6.5840/tester1"
 )
 
 type Test struct {
@@ -41,7 +39,6 @@ func MakeTest(t *testing.T, part string, nclients, nservers int, reliable bool, 
 
 func (ts *Test) StartKVServer(servers []*labrpc.ClientEnd, gid tester.Tgid, me int, persister *tester.Persister) []tester.IService {
 	return StartKVServer(servers, gid, me, persister, ts.maxraftstate)
-
 }
 
 func (ts *Test) MakeClerk() kvtest.IKVClerk {

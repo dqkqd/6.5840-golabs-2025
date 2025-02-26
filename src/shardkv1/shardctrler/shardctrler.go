@@ -5,16 +5,11 @@ package shardctrler
 //
 
 import (
-
 	"sync/atomic"
 
-	"6.5840/kvsrv1"
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
 	"6.5840/shardkv1/shardcfg"
-	"6.5840/tester1"
 )
-
 
 // ShardCtrler for the controller and kv clerk.
 type ShardCtrler struct {
@@ -76,10 +71,8 @@ func (sck *ShardCtrler) isKilled() bool {
 	return z == 1
 }
 
-
 // Return the current configuration and its version number
 func (sck *ShardCtrler) Query() (*shardcfg.ShardConfig, rpc.Tversion) {
 	// Your code here.
 	return nil, 0
 }
-
