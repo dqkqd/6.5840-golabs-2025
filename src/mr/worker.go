@@ -26,9 +26,11 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
+	// TODO: Ask for task
 
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+	// TODO: if this is a map task, run it
+
+	// TODO: if this is a reduce task, run it
 
 }
 
