@@ -22,14 +22,42 @@ func ihash(key string) int {
 }
 
 // main/mrworker.go calls this function.
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string,
-) {
-	// Your worker implementation here.
-	// TODO: Ask for task
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	// TODO: generate a unique worker id?
+	workerId := 1
 
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+	for {
+		// Your worker implementation here.
+		// TODO: Ask for task
+		task, err := askForTask(workerId)
+		if err != nil {
+			// cannot receive any task.
+			// There are 3 cases:
+			//  - There are running map tasks that reduce tasks couldn't given => we should wait
+			//  - All of the tasks being given to other workers => we should wait
+			//  - There are no more task => we should stop
+			// TODO: Just stop for now. Handle it later.
+			break
+		}
+
+		fmt.Printf("received task %v\n", task.MapInputFile)
+
+		// TODO: if this is a map task, run it
+
+		// TODO: if this is a reduce task, run it
+	}
+}
+
+func askForTask(workerId int) (Task, error) {
+	workerArgs := workerId
+	replyTask := Task{}
+
+	ok := call("Coordinator.GiveTask", &workerArgs, &replyTask)
+	if !ok {
+		return replyTask, fmt.Errorf("cannot receive task from coordinator for worker: %v", workerArgs)
+	}
+
+	return replyTask, nil
 }
 
 // example function to show how to make an RPC call to the coordinator.
