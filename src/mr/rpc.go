@@ -26,15 +26,6 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 type WorkerTaskReply struct {
-	mapTask    MapTask
-	reduceTask ReduceTask
-}
-
-type MapTask struct {
-	// TODO: add more fields later
-}
-type ReduceTask struct {
-	// TODO: add more fields later
 }
 
 // Cook up a unique-ish UNIX-domain socket name

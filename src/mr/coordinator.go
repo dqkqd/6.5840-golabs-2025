@@ -10,7 +10,7 @@ import (
 
 type Coordinator struct {
 	// Your definitions here.
-
+	remainingTasks []Task
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -20,6 +20,10 @@ type Coordinator struct {
 // the RPC argument and reply types are defined in rpc.go.
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
+	return nil
+}
+
+func (c *Coordinator) GiveTask() error {
 	return nil
 }
 
@@ -54,6 +58,13 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
+	for _, file := range files {
+		task := Task{
+			kind:         MapTask,
+			mapInputFile: file,
+		}
+		c.remainingTasks = append(c.remainingTasks, task)
+	}
 
 	c.server()
 	return &c
