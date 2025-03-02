@@ -152,25 +152,25 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	workerId := 1
 
 	for {
-		rpcTask, err := queryTask(workerId)
+		reply, err := queryTask(workerId)
 		// Cannot get task from coordinator, assume it to be dead and quit
 		if err != nil {
 			return
 		}
-		log.Printf("received task %+v", rpcTask)
+		log.Printf("received task %+v", reply)
 
-		switch rpcTask.Status {
+		switch reply.Status {
 
-		case Wait:
+		case WorkerShouldWait:
 			time.Sleep(5 * time.Second)
 
-		case Stopped:
+		case WorkerShouldStop:
 			// coordinator stopped
 			break
 
-		case Ok:
+		case WorkerCanRunTask:
 			{
-				task := rpcTask.Task
+				task := reply.Task
 				switch task.Kind {
 				case MapTask:
 					runMapTask(task, mapf)
@@ -187,7 +187,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			}
 
 		default:
-			log.Fatalf("invalid task status: `%+v`", rpcTask.Status)
+			log.Fatalf("invalid task status: `%+v`", reply.Status)
 		}
 	}
 }
@@ -202,14 +202,14 @@ func reportTaskDone(task Task) error {
 	return nil
 }
 
-func queryTask(workerId int) (RpcTask, error) {
+func queryTask(workerId int) (RpcTaskReply, error) {
 	workerArgs := workerId
-	rpcTask := RpcTask{}
-	ok := call("Coordinator.DistributeTask", &workerArgs, &rpcTask)
+	reply := RpcTaskReply{}
+	ok := call("Coordinator.ScheduleTask", &workerArgs, &reply)
 	if !ok {
-		return rpcTask, fmt.Errorf("cannot receive task from coordinator for worker: %+v", workerArgs)
+		return reply, fmt.Errorf("cannot receive task from coordinator for worker: %+v", workerArgs)
 	}
-	return rpcTask, nil
+	return reply, nil
 }
 
 // send an RPC request to the coordinator, wait for the response.
