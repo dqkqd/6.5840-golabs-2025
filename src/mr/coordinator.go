@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -84,6 +85,8 @@ func (c *Coordinator) FinishTask(task *Task, _ *int) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	log.Printf("task `%+v` done", task)
+
 	switch task.Kind {
 
 	case MapTask:
@@ -92,19 +95,11 @@ func (c *Coordinator) FinishTask(task *Task, _ *int) error {
 		if mapTaskSize != len(c.mapTasks)+1 {
 			log.Fatalf("unable to delete map task: `%+v`", *task)
 		}
-		reduceTask := Task{
-			Id:      task.Id,
-			Kind:    ReduceTask,
-			NReduce: c.nReduce,
-			running: false,
-		}
-		log.Printf("create a new reduce task: `%+v`\n", reduceTask)
-		c.reduceTasks = append(c.reduceTasks, reduceTask)
 
 	case ReduceTask:
-		mapTaskSize := len(c.reduceTasks)
+		reduceTaskSize := len(c.reduceTasks)
 		c.reduceTasks = slices.DeleteFunc(c.reduceTasks, func(t Task) bool { return t.Id == task.Id })
-		if mapTaskSize != len(c.reduceTasks)+1 {
+		if reduceTaskSize != len(c.reduceTasks)+1 {
 			log.Fatalf("unable to delete reduce task: `%+v`", *task)
 		}
 	}
@@ -136,18 +131,32 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
+	isDebug := os.Getenv("DEBUG") == "1"
+	if !isDebug {
+		log.SetOutput(io.Discard)
+		log.SetFlags(0)
+	}
+
 	c := Coordinator{}
 	c.nReduce = nReduce
 
-	// Your code here.
-	for i, file := range files {
-		task := Task{
-			Id:          i,
+	// Create map tasks
+	for mapId, file := range files {
+		c.mapTasks = append(c.mapTasks, Task{
+			Id:          mapId,
 			running:     false,
 			Kind:        MapTask,
 			MapFilename: file,
-		}
-		c.mapTasks = append(c.mapTasks, task)
+		})
+	}
+
+	// Create reduce tasks
+	for reduceId := range nReduce {
+		c.reduceTasks = append(c.reduceTasks, Task{
+			Id:      reduceId,
+			running: false,
+			Kind:    ReduceTask,
+		})
 	}
 
 	c.server()

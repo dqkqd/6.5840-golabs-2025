@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"path/filepath"
+	"sort"
 	"time"
 )
 
@@ -16,6 +18,14 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+// for sorting by key.
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -27,6 +37,14 @@ func ihash(key string) int {
 
 func intermediateFilename(mapId int, reduceId int) string {
 	return fmt.Sprintf("mr-tmpfile-%d-%d", mapId, reduceId)
+}
+
+func globIntermediateFilenames(reduceId int) ([]string, error) {
+	return filepath.Glob(fmt.Sprintf("mr-tmpfile-*-%d", reduceId))
+}
+
+func reduceFilename(reduceId int) string {
+	return fmt.Sprintf("mr-out-%d", reduceId)
 }
 
 func runMapTask(task Task, mapf func(string, string) []KeyValue) {
@@ -73,8 +91,63 @@ func runMapTask(task Task, mapf func(string, string) []KeyValue) {
 	}
 }
 
+func runReduceTask(task Task, reducef func(string, []string) string) {
+	filenames, err := globIntermediateFilenames(task.Id)
+	if err != nil {
+		log.Fatalf("cannot get intermediate filename to reduce, task: `%+v`", task)
+	}
+
+	kva := []KeyValue{}
+	for _, filename := range filenames {
+		f, err := os.OpenFile(filename, os.O_RDONLY, 0444)
+		if err != nil {
+			log.Fatalf("cannot open intermediate file: %s", filename)
+		}
+		dec := json.NewDecoder(f)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			kva = append(kva, kv)
+		}
+
+		sort.Sort(ByKey(kva))
+	}
+
+	reduceFilename := reduceFilename(task.Id)
+	reduceFile, err := os.OpenFile(reduceFilename, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("cannot create reduce file `%s`", reduceFilename)
+	}
+	defer reduceFile.Close()
+
+	i := 0
+	for i < len(kva) {
+		j := i + 1
+		for j < len(kva) && kva[j].Key == kva[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, kva[k].Value)
+		}
+		output := reducef(kva[i].Key, values)
+
+		fmt.Fprintf(reduceFile, "%v %v\n", kva[i].Key, output)
+
+		i = j
+	}
+}
+
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	isDebug := os.Getenv("DEBUG") == "1"
+	if !isDebug {
+		log.SetOutput(io.Discard)
+		log.SetFlags(0)
+	}
+
 	// TODO: generate a unique worker id?
 	workerId := 1
 
@@ -100,25 +173,28 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			{
 				task := rpcTask.Task
 				switch task.Kind {
-
 				case MapTask:
 					runMapTask(task, mapf)
-					err := reportTaskDone(task)
-					if err != nil {
-						// cannot report to coordinator, assume it to be dead and quit
-						return
-					}
-
 				case ReduceTask:
-					log.Fatalf("todo")
+					runReduceTask(task, reducef)
+				default:
+					log.Fatalf("invalid task: `%+v`", task)
+				}
 
+				err := reportTaskDone(task)
+				if err != nil {
+					log.Fatalf("cannot report task done to coordinator: `%+v`", task)
 				}
 			}
+
+		default:
+			log.Fatalf("invalid task status: `%+v`", rpcTask.Status)
 		}
 	}
 }
 
 func reportTaskDone(task Task) error {
+	log.Printf("finished task `%+v`, report to coordinator", task)
 	reply := 0
 	ok := call("Coordinator.FinishTask", &task, &reply)
 	if !ok {

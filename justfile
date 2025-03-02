@@ -1,3 +1,5 @@
+export DEBUG := "1"
+
 clean:
     rm -f **/**/*.so
     rm -f **/**/mr-tmpfile*
