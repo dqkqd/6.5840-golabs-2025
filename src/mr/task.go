@@ -3,8 +3,8 @@ package mr
 import "time"
 
 type (
-	TaskKind      int
-	RpcTaskStatus int
+	TaskKind           int
+	RpcTaskReplyStatus int
 )
 
 const (
@@ -43,12 +43,12 @@ func (t *Task) Schedule() {
 }
 
 const (
-	Wait RpcTaskStatus = iota
-	Ok
-	Stopped
+	WorkerShouldWait RpcTaskReplyStatus = iota
+	WorkerCanRunTask
+	WorkerShouldStop
 )
 
-type RpcTask struct {
+type RpcTaskReply struct {
 	Task   Task
-	Status RpcTaskStatus
+	Status RpcTaskReplyStatus
 }

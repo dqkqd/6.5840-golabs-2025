@@ -20,33 +20,25 @@ type Coordinator struct {
 
 // Your code here -- RPC handlers for the worker to call.
 
-// an example RPC handler.
+// Schedule task to worker.
 //
-// the RPC argument and reply types are defined in rpc.go.
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
-}
-
-// Distribute task to worker.
-//
-// Coordinator will first try to distribute map task.
+// Coordinator will first try to schedule map task.
 // If all map tasks are running, coordinator should wait.
-// Only if there is no map task, coordinator then looks at reduce tasks.
-func (c *Coordinator) DistributeTask(workerArgs *int, task *RpcTask) error {
+// Only if there is no map task, coordinator can look at reduce tasks.
+func (c *Coordinator) ScheduleTask(workerArgs *int, reply *RpcTaskReply) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	task.Task.NReduce = c.nReduce
+	reply.Task.NReduce = c.nReduce
 
 	if len(c.mapTasks) > 0 {
 		// Worker should run map tasks first
 		for i, mapTask := range c.mapTasks {
 			if mapTask.CanBeScheduled() {
-				task.Task.Id = mapTask.Id
-				task.Task.Kind = MapTask
-				task.Status = Ok
-				task.Task.MapFilename = mapTask.MapFilename
+				reply.Task.Id = mapTask.Id
+				reply.Task.Kind = MapTask
+				reply.Status = WorkerCanRunTask
+				reply.Task.MapFilename = mapTask.MapFilename
 
 				// schedule the task, so other cannot touch it
 				c.mapTasks[i].Schedule()
@@ -55,14 +47,14 @@ func (c *Coordinator) DistributeTask(workerArgs *int, task *RpcTask) error {
 			}
 		}
 		log.Printf("all map tasks are running, worker `%+v` should wait", *workerArgs)
-		task.Status = Wait
+		reply.Status = WorkerShouldWait
 	} else if len(c.reduceTasks) > 0 {
 		// All map tasks are done, worker should run reduce tasks
 		for i, reduceTask := range c.reduceTasks {
 			if reduceTask.CanBeScheduled() {
-				task.Task.Id = reduceTask.Id
-				task.Task.Kind = ReduceTask
-				task.Status = Ok
+				reply.Task.Id = reduceTask.Id
+				reply.Task.Kind = ReduceTask
+				reply.Status = WorkerCanRunTask
 
 				// schedule the task, so other cannot touch it
 				c.reduceTasks[i].Schedule()
@@ -71,10 +63,10 @@ func (c *Coordinator) DistributeTask(workerArgs *int, task *RpcTask) error {
 			}
 		}
 		log.Printf("all reduce tasks are running, worker `%+v` should wait", *workerArgs)
-		task.Status = Wait
+		reply.Status = WorkerShouldWait
 	} else {
 		log.Printf("all tasks are finished, worker `%+v` should abort", *workerArgs)
-		task.Status = Stopped
+		reply.Status = WorkerShouldStop
 	}
 
 	return nil
