@@ -1,5 +1,7 @@
 clean:
     rm -f **/**/*.so
+    rm -f **/**/mr-tmpfile*
+    rm -f **/**/mr-out*
 
 [working-directory: 'src/main']
 @mr-coordinator: clean
