@@ -162,8 +162,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		switch rpcTask.Status {
 
 		case Wait:
-			// TODO: is 1 second enough?
-			time.Sleep(time.Second)
+			time.Sleep(5 * time.Second)
 
 		case Stopped:
 			// coordinator stopped

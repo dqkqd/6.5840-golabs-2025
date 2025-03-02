@@ -42,15 +42,14 @@ func (c *Coordinator) DistributeTask(workerArgs *int, task *RpcTask) error {
 	if len(c.mapTasks) > 0 {
 		// Worker should run map tasks first
 		for i, mapTask := range c.mapTasks {
-			// Found a non-running task, give it to worker
-			if !mapTask.running {
+			if mapTask.CanBeScheduled() {
 				task.Task.Id = mapTask.Id
 				task.Task.Kind = MapTask
 				task.Status = Ok
 				task.Task.MapFilename = mapTask.MapFilename
 
-				// mark this task as running, so other workers cannot access it
-				c.mapTasks[i].running = true
+				// schedule the task, so other cannot touch it
+				c.mapTasks[i].Schedule()
 				log.Printf("distributed task `%+v` for worker `%+v`", c.mapTasks[i], *workerArgs)
 				return nil
 			}
@@ -60,13 +59,13 @@ func (c *Coordinator) DistributeTask(workerArgs *int, task *RpcTask) error {
 	} else if len(c.reduceTasks) > 0 {
 		// All map tasks are done, worker should run reduce tasks
 		for i, reduceTask := range c.reduceTasks {
-			if !reduceTask.running {
+			if reduceTask.CanBeScheduled() {
 				task.Task.Id = reduceTask.Id
 				task.Task.Kind = ReduceTask
 				task.Status = Ok
 
-				// mark this task as running, so other workers cannot acess it
-				c.reduceTasks[i].running = true
+				// schedule the task, so other cannot touch it
+				c.reduceTasks[i].Schedule()
 				log.Printf("distributed task: `%+v` for worker `%+v`", c.reduceTasks[i], *workerArgs)
 				return nil
 			}
@@ -144,7 +143,6 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	for mapId, file := range files {
 		c.mapTasks = append(c.mapTasks, Task{
 			Id:          mapId,
-			running:     false,
 			Kind:        MapTask,
 			MapFilename: file,
 		})
@@ -153,9 +151,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Create reduce tasks
 	for reduceId := range nReduce {
 		c.reduceTasks = append(c.reduceTasks, Task{
-			Id:      reduceId,
-			running: false,
-			Kind:    ReduceTask,
+			Id:   reduceId,
+			Kind: ReduceTask,
 		})
 	}
 
