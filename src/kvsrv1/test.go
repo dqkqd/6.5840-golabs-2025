@@ -3,6 +3,9 @@ package kvsrv
 import (
 	// "log"
 	"testing"
+
+	kvtest "6.5840/kvtest1"
+	tester "6.5840/tester1"
 )
 
 type TestKV struct {
