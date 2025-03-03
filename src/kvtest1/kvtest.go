@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"6.5840/kvsrv1/rpc"
+	tester "6.5840/tester1"
 )
 
 // The tester generously allows solutions to complete elections in one second
@@ -312,7 +313,7 @@ type entry struct {
 	N  int
 }
 
-// At each iteration i, oneClient attemps to appends a tuple (me, i)
+// At each iteration i, oneClient attempts to appends a tuple (me, i)
 // to a key "k" shared with other clients.  The client implements the
 // append by first performing a Clerk.Get and then a Clerk.Put with
 // the version number returned from the Get.  If another client
