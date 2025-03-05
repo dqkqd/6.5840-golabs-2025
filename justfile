@@ -13,3 +13,8 @@ mr-clean:
 [working-directory: 'src/main']
 @mr-client:
     go run mrworker.go wc.so
+
+
+[working-directory: 'src/kvsrv1']
+@kvsrv-reliable:
+    go test -v -run Reliable
