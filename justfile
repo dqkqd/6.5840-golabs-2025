@@ -18,3 +18,7 @@ mr-clean:
 [working-directory: 'src/kvsrv1']
 @kvsrv-reliable:
     go test -v -run Reliable
+
+[working-directory: 'src/kvsrv1']
+@kvsrv-all:
+    go test -v
