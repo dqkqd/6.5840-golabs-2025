@@ -8,12 +8,7 @@ import (
 	kvtest "6.5840/kvtest1"
 )
 
-type lockState = string
-
-const (
-	Locked   lockState = "locked"
-	Unlocked           = "unlocked"
-)
+const unlockedState = "__unlocked"
 
 type Lock struct {
 	// IKVClerk is a go interface for k/v clerks: the interface hides
@@ -22,8 +17,8 @@ type Lock struct {
 	// MakeLock().
 	ck kvtest.IKVClerk
 	// You may add code here
-	lkey   string
-	lstate lockState
+	clientId string
+	lockKey  string
 }
 
 // The tester calls MakeLock() and passes in a k/v clerk; your code can
@@ -32,58 +27,76 @@ type Lock struct {
 // Use l as the key to store the "lock state" (you would have to decide
 // precisely what the lock state is).
 func MakeLock(ck kvtest.IKVClerk, l string) *Lock {
-	lk := &Lock{ck: ck, lkey: l, lstate: Unlocked}
+	lk := &Lock{
+		ck:       ck,
+		clientId: kvtest.RandValue(8),
+		lockKey:  l,
+	}
 	// You may add code here
 	lk.init()
 	return lk
 }
 
-// try to init the lock if it doesn't exist
+func wait() {
+	time.Sleep(100 * time.Millisecond)
+}
+
+// ensure the lockKey is initialized on the server
 func (lk *Lock) init() {
-	err := lk.ck.Put(lk.lkey, Unlocked, 0)
-	if err == rpc.ErrVersion {
-		log.Printf("someone has initialized the lock already, lkey=`%s`", lk.lkey)
-	} else if !(err == rpc.OK || err == rpc.ErrMaybe) {
-		log.Fatalf("cannot initialize lock lkey=`%s`, err=`%s`", lk.lkey, err)
+	for {
+		err := lk.ck.Put(lk.lockKey, unlockedState, 0)
+		if err == rpc.ErrMaybe {
+			wait()
+			continue
+		} else {
+			break
+		}
 	}
 }
 
+// get should always return OK
+func (lk *Lock) lockState() (string, rpc.Tversion) {
+	value, version, err := lk.ck.Get(lk.lockKey)
+	if err != rpc.OK {
+		log.Fatalf("cannot get lock key, err=`%s`", err)
+	}
+	return value, version
+}
+
 func (lk *Lock) Acquire() {
-	// Your code here
-
-	// for then test-and-set
+	// test-and-set
 	for {
-		value, version, err := lk.ck.Get(lk.lkey)
+		lockState, version := lk.lockState()
 
-		if err != rpc.OK {
-			log.Fatalf("lock lkey=`%s` wasn't initialized", lk.lkey)
+		// already locked
+		if lockState == lk.clientId {
+			break
 		}
 
-		if value == Unlocked {
-			err = lk.ck.Put(lk.lkey, Locked, version)
-			if err == rpc.OK || err == rpc.ErrMaybe {
-				return
-			}
+		// try to lock it
+		if lockState == unlockedState {
+			lk.ck.Put(lk.lockKey, lk.clientId, version)
 		}
-
-		time.Sleep(time.Second)
+		wait()
 	}
 }
 
 func (lk *Lock) Release() {
-	// Your code here
+	var lockState string
+	var version rpc.Tversion
+	lockState, version = lk.lockState()
 
-	value, version, err := lk.ck.Get(lk.lkey)
-	if err != rpc.OK {
-		log.Fatalf("lock lkey=`%s` wasn't initialized", lk.lkey)
+	if lockState != lk.clientId {
+		log.Fatalf("client=`%s` is not holding the lock", lk.clientId)
 	}
 
-	if value != Locked {
-		log.Fatalf("lock lkey=`%s` wasn't locked", lk.lkey)
-	}
-
-	err = lk.ck.Put(lk.lkey, Unlocked, version)
-	if !(err == rpc.OK || err == rpc.ErrMaybe) {
-		log.Fatalf("cannot unlock lkey=`%s`", lk.lkey)
+	for {
+		lk.ck.Put(lk.lockKey, unlockedState, version)
+		lockState, version = lk.lockState()
+		if lockState != lk.clientId {
+			break
+		} else {
+			wait()
+		}
 	}
 }
