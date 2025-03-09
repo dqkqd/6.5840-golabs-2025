@@ -8,6 +8,7 @@ package raft
 
 import (
 	//	"bytes"
+	"log"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,22 @@ type Raft struct {
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
+
+	// Persistent state on all servers
+	currentTerm int64  // latest term server has seen (initialized to 0 on first boot, increase monotonically)
+	votedFor    int    // candidateId that received vote in current term (or `-1` if none)
+	log         []byte // log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
+
+	// Volatile state on all servers
+	commitIndex int // index of highest log entry known to be committed (initialized to 0, increase monotinically)
+	lastApplied int // index of highest log entry applied to state machine (initialized to 0, increase monotonically)
+
+	// Volatile state on leaders
+	nextIndex  []int // for each server, index of the next log entry to send to that server (initialized to leader last log index + 1)
+	matchIndex []int // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
+
+	// keep track of the latest timestamp receiving AppendEntries RPC
+	latest int
 }
 
 // return currentTerm and whether this server
@@ -38,6 +55,11 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (3A).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	term = int(rf.currentTerm)
+	isleader = rf.votedFor == rf.me
+
 	return term, isleader
 }
 
@@ -94,21 +116,57 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (3D).
 }
 
+type AppendEntriesArgs struct {
+	Term         int64  // leader's term
+	LeaderId     int    // so follower can redirect clients
+	PrevLogIndex int    // index of log entry immediately preceding new ones
+	PrevLogTerm  int64  // term of `PrevLogIndex` entry
+	Entries      []byte // log entries to store (empty for heartbeat; may send more than one for efficiency)
+	LeaderCommit int    // leader's `commitIndex`
+}
+type AppendEntriesReply struct{}
+
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (3A, 3B).
+	Term         int64 // candidate's term
+	CandidateId  int   // candidate requesting vote
+	LastLogIndex int   // index of candidate's last log entry
+	LastLogTerm  int64 // term of candidate's last log entry
 }
 
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type RequestVoteReply struct {
 	// Your data here (3A).
+	Term        int64 // CurrentTerm, for candidate to update itself
+	VoteGranted bool  // true means candidate received vote
 }
 
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// convert to follower due to `Rules for Servers`
+	if rf.currentTerm < args.Term {
+		rf.votedFor = -1
+	}
+
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		reply.VoteGranted = false
+	} else if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
+		// TODO
+		log.Fatal("unimplemented checking log is up-to-date")
+		reply.Term = args.Term
+		reply.VoteGranted = true
+
+		// vote for this candidate
+		rf.votedFor = args.CandidateId
+	}
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -189,6 +247,10 @@ func (rf *Raft) ticker() {
 
 		// Your code here (3A)
 		// Check if a leader election should be started.
+		term, isleader := rf.GetState()
+		// we are not a leader
+		if !isleader {
+		}
 
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
