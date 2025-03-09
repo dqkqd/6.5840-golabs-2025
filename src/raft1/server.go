@@ -44,7 +44,7 @@ func newRfsrv(ts *Test, srv int, ends []*labrpc.ClientEnd, persister *tester.Per
 	}
 	if snapshot {
 		snapshot := persister.ReadSnapshot()
-		if snapshot != nil && len(snapshot) > 0 {
+		if len(snapshot) > 0 {
 			// mimic KV server and process snapshot now.
 			// ideally Raft should send it up on applyCh...
 			err := s.ingestSnap(snapshot, -1)
@@ -97,11 +97,11 @@ func (rs *rfsrv) Logs(i int) (any, bool) {
 // contents
 func (rs *rfsrv) applier(applyCh chan raftapi.ApplyMsg) {
 	for m := range applyCh {
-		if m.CommandValid == false {
+		if !m.CommandValid {
 			// ignore other types of ApplyMsg
 		} else {
 			err_msg, prevok := rs.ts.checkLogs(rs.me, m)
-			if m.CommandIndex > 1 && prevok == false {
+			if m.CommandIndex > 1 && !prevok {
 				err_msg = fmt.Sprintf("server %v apply out of order %v", rs.me, m.CommandIndex)
 			}
 			if err_msg != "" {
@@ -133,7 +133,7 @@ func (rs *rfsrv) applierSnap(applyCh chan raftapi.ApplyMsg) {
 			if err_msg == "" {
 				var prevok bool
 				err_msg, prevok = rs.ts.checkLogs(rs.me, m)
-				if m.CommandIndex > 1 && prevok == false {
+				if m.CommandIndex > 1 && !prevok {
 					err_msg = fmt.Sprintf("server %v apply out of order %v", rs.me, m.CommandIndex)
 				}
 			}
