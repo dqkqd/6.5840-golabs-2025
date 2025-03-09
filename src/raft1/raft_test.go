@@ -435,7 +435,7 @@ loop:
 			} else {
 				details := fmt.Sprintf("value %v is not an int", cmd)
 				tester.AnnotateCheckerFailure("read ill-typed value", details)
-				t.Fatalf(details)
+				t.Fatal(details)
 			}
 		}
 
@@ -459,7 +459,7 @@ loop:
 			if ok == false {
 				details := fmt.Sprintf("cmd %v missing in %v", x, cmds)
 				tester.AnnotateCheckerFailure("concurrent submission failed", details)
-				t.Fatalf(details)
+				t.Fatal(details)
 			}
 		}
 
@@ -618,7 +618,8 @@ func TestCount3B(t *testing.T) {
 		return
 	}
 
-	leader := ts.checkOneLeader()
+	var leader int
+	ts.checkOneLeader()
 
 	total1 := rpcs()
 
@@ -1345,7 +1346,7 @@ func TestSnapshotAllCrash3D(t *testing.T) {
 		if index2 < index1+1 {
 			msg := fmt.Sprintf("index decreased from %v to %v", index1, index2)
 			tester.AnnotateCheckerFailure("incorrect behavior: index decreased", msg)
-			t.Fatalf(msg)
+			t.Fatal(msg)
 		}
 	}
 }
