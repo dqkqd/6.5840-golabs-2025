@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	tester "6.5840/tester1"
 )
 
 // The tester generously allows solutions to complete elections in one second
@@ -181,7 +183,6 @@ func TestRPCBytes3B(t *testing.T) {
 	if got > expected+50000 {
 		t.Fatalf("too many RPC bytes; got %v, expected %v", got, expected)
 	}
-
 }
 
 // test just failure of followers.
@@ -984,7 +985,6 @@ func TestUnreliableAgree3C(t *testing.T) {
 	wg.Wait()
 
 	ts.one(100, servers, true)
-
 }
 
 func TestFigure8Unreliable3C(t *testing.T) {
@@ -1050,7 +1050,6 @@ func TestFigure8Unreliable3C(t *testing.T) {
 }
 
 func internalChurn(t *testing.T, reliable bool) {
-
 	servers := 5
 	ts := makeTest(t, servers, reliable, false)
 	defer ts.cleanup()
