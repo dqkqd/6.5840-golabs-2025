@@ -209,6 +209,12 @@ func (rf *Raft) ticker() {
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *tester.Persister, applyCh chan raftapi.ApplyMsg,
 ) raftapi.Raft {
+	// disable log for real test
+	enableLog := os.Getenv("ENABLE_LOG") == "1"
+	if !enableLog {
+		log.SetOutput(io.Discard)
+	}
+
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister
