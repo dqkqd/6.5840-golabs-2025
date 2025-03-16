@@ -294,6 +294,17 @@ func (rf *Raft) sendAppendEntries(args AppendEntriesArgs) <-chan AppendEntriesRe
 	return appendEntriesCh
 }
 
+// change term based on Rule for All Servers,
+// lock must not be hold
+func (rf *Raft) changeTerm(term int64) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if term > rf.currentTerm {
+		rf.currentTerm = term
+		rf.state = Follower
+	}
+}
+
 func (rf *Raft) elect(allowElectionCh chan<- bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -352,12 +363,7 @@ func (rf *Raft) elect(allowElectionCh chan<- bool) {
 
 				// receive rpc with higher term, terminate election and become follower
 				if term < reply.Term {
-					rf.mu.Lock()
-					defer rf.mu.Unlock()
-					// need to check again to make sure `rf.currentTerm` hasn't changed since
-					if rf.currentTerm < reply.Term {
-						rf.state = Follower
-					}
+					rf.changeTerm(reply.Term)
 					return
 				}
 
@@ -420,14 +426,9 @@ func (rf *Raft) heartbeat(allowHeartbeatCh chan<- bool) {
 	// receive heartbeat in the background
 	go func() {
 		for reply := range heartbeatCh {
-			// someone has higher term, we should become follower right away
+			// someone with higher term exists, abort
 			if term < reply.Term {
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-				// need to check again to make sure `rf.currentTerm` hasn't changed since
-				if rf.currentTerm <= reply.Term {
-					rf.state = Follower
-				}
+				rf.changeTerm(reply.Term)
 				return
 			}
 		}
