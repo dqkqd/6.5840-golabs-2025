@@ -22,3 +22,7 @@ mr-clean:
 [working-directory: 'src/kvsrv1']
 @kvsrv-all:
     go test -v
+
+[working-directory: 'src/raft1']
+@lab-3a:
+  go test -v -run 3A --race
