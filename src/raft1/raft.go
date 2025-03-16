@@ -143,6 +143,34 @@ type AppendEntriesReply struct {
 	Success bool  // true if follower contained entry matching prevLogIndex and prevLogTerm
 }
 
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	// Your code here (3A, 3B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// record the time when we received the AppendEntries
+	rf.latestAppendEntriesAt = time.Now()
+
+	if rf.currentTerm < args.Term {
+		// lower term, change to follower and return
+		rf.currentTerm = args.Term
+		rf.state = Follower
+
+		reply.Term = args.Term
+		reply.Success = true
+
+	} else if rf.currentTerm > args.Term {
+		// higher term, reply with current term so others can update
+		reply.Term = rf.currentTerm
+		reply.Success = false
+
+	} else {
+		// equal term
+		// TODO: do something with the entries
+		reply.Success = true
+	}
+}
+
 // example RequestVote RPC arguments structure.
 // field names must start with capital letters!
 type RequestVoteArgs struct {
@@ -221,6 +249,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	return ok
+}
+
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
 
@@ -317,6 +350,57 @@ func (rf *Raft) lastLogTerm() int64 {
 	return 0
 }
 
+func (rf *Raft) startHeartbeat() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// only leader can send heart beat
+	if rf.state != Leader {
+		return
+	}
+
+	log.Printf("%d: send heartbeat", rf.me)
+
+	heartbeatCh := make(chan AppendEntriesReply, len(rf.peers)-1)
+	// send request votes in parallel
+	for serverId := range rf.peers {
+		if serverId != rf.me {
+			go func() {
+				appendEntriesArgs := AppendEntriesArgs{
+					Term: rf.currentTerm,
+				}
+				reply := AppendEntriesReply{}
+				ok := rf.sendAppendEntries(serverId, &appendEntriesArgs, &reply)
+				if ok {
+					heartbeatCh <- reply
+				} else {
+					heartbeatCh <- AppendEntriesReply{Term: -1, Success: false}
+				}
+			}()
+		}
+	}
+
+	// receive heart beat reply to check whether we should change ourselve into follower
+	votedTerm := rf.currentTerm
+
+	// receive votes in the background
+	go func() {
+		// we have voted for ourselves already
+		for reply := range heartbeatCh {
+			// someone has higher term, we should become follower right away
+			if votedTerm < reply.Term {
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
+				// need to check again to make sure `rf.currentTerm` hasn't changed since
+				if rf.currentTerm <= reply.Term {
+					rf.state = Follower
+				}
+				return
+			}
+		}
+	}()
+}
+
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
 // server isn't the leader, returns false. otherwise start the
@@ -366,7 +450,7 @@ func (rf *Raft) mainBackgroundLoop(startElectionCh chan bool, startHeartbeatCh c
 			rf.startElection()
 
 		case <-startHeartbeatCh:
-			// TODO: start heart beat
+			rf.startHeartbeat()
 		}
 	}
 }
