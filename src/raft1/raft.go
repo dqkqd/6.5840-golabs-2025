@@ -58,8 +58,7 @@ type Raft struct {
 
 	// optional fields
 	state                 serverState // state of the server: leader, follower, or candidate
-	electionTimeout       time.Duration
-	latestAppendEntriesAt time.Time // the latest time we received the entries, since we only save this to compute the monotonical timediff, it is fine
+	latestAppendEntriesAt time.Time   // the latest time we received the entries, since we only save this to compute the monotonical timediff, it is fine
 }
 
 // return currentTerm and whether this server
@@ -257,18 +256,26 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	return ok
 }
 
-func (rf *Raft) startElection() {
+func (rf *Raft) elect(allowElectionCh chan<- bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	// only follower or candidate can start an election
-	if rf.state != Follower && rf.state != Candidate {
-		return
-	}
+	// election timer: between 200ms and 300ms
+	ms := 200 + (rand.Int63() % 100)
+	timeout := time.Duration(ms) * time.Millisecond
 
-	// do not start election if we received heartbeat without timeout
-	shouldStartElection := time.Since(rf.latestAppendEntriesAt) > rf.electionTimeout
-	if !shouldStartElection {
+	electionFinished := make(chan bool)
+	go func() {
+		<-time.After(timeout)
+		allowElectionCh <- true
+		electionFinished <- true
+	}()
+
+	canSendVotes := rf.state == Follower || rf.state == Candidate
+	shouldSendVotes := time.Since(rf.latestAppendEntriesAt) >= timeout
+
+	// cannot start election
+	if !canSendVotes || !shouldSendVotes {
 		return
 	}
 
@@ -279,7 +286,7 @@ func (rf *Raft) startElection() {
 	rf.currentTerm += 1 // increment current term
 	rf.votedFor = rf.me // vote for self
 
-	// save term to avoid another modification in other thread affect this election
+	// save term to avoid another modification in other threads affect this term value
 	term := rf.currentTerm
 
 	// send RequestVoteRPCs to all other servers in parallel
@@ -311,33 +318,43 @@ func (rf *Raft) startElection() {
 	go func() {
 		// we have voted for ourselves already
 		totalVotes := 1
-		for reply := range voteCh {
 
-			if reply.VoteGranted {
-				totalVotes += 1
-			}
+		// waiting from vote channels and timeout
+		for !rf.killed() {
+			select {
 
-			// receive rpc with higher term, terminate election and become follower
-			if term < reply.Term {
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-				// need to check again to make sure `rf.currentTerm` hasn't changed since
-				if rf.currentTerm < reply.Term {
-					rf.state = Follower
-				}
+			// timeout
+			case <-electionFinished:
 				return
-			}
 
-			// if votes received from majority of servers: become leader
-			if totalVotes*2 > len(rf.peers) {
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-				// need to check again to make sure `rf.currentTerm` hasn't changed since
-				if term == rf.currentTerm {
-					log.Printf("%d: become leader", rf.me)
-					rf.state = Leader
+			case reply := <-voteCh:
+
+				// receive rpc with higher term, terminate election and become follower
+				if term < reply.Term {
+					rf.mu.Lock()
+					defer rf.mu.Unlock()
+					// need to check again to make sure `rf.currentTerm` hasn't changed since
+					if rf.currentTerm < reply.Term {
+						rf.state = Follower
+					}
+					return
 				}
-				return
+
+				if reply.VoteGranted {
+					totalVotes += 1
+				}
+
+				// if votes received from majority of servers: become leader
+				if totalVotes*2 > len(rf.peers) {
+					rf.mu.Lock()
+					defer rf.mu.Unlock()
+					// need to check again to make sure `rf.currentTerm` hasn't changed since
+					if term == rf.currentTerm {
+						log.Printf("%d: become leader", rf.me)
+						rf.state = Leader
+					}
+					return
+				}
 			}
 		}
 	}()
@@ -353,9 +370,15 @@ func (rf *Raft) lastLogTerm() int64 {
 	return 0
 }
 
-func (rf *Raft) startHeartbeat() {
+func (rf *Raft) heartbeat(allowHeartbeatCh chan<- bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
+	go func() {
+		// heartbeat timer: 150ms
+		<-time.After(150 * time.Millisecond)
+		allowHeartbeatCh <- true
+	}()
 
 	// only leader can send heart beat
 	if rf.state != Leader {
@@ -386,9 +409,8 @@ func (rf *Raft) startHeartbeat() {
 		}
 	}
 
-	// receive votes in the background
+	// receive heartbeat in the background
 	go func() {
-		// we have voted for ourselves already
 		for reply := range heartbeatCh {
 			// someone has higher term, we should become follower right away
 			if term < reply.Term {
@@ -445,46 +467,24 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-func (rf *Raft) mainBackgroundLoop(startElectionCh chan bool, startHeartbeatCh chan bool) {
+func (rf *Raft) ticker() {
+	allowElectionCh := make(chan bool)
+	allowHeartbeatCh := make(chan bool)
+
+	go func() {
+		allowElectionCh <- true
+		allowHeartbeatCh <- true
+	}()
+
 	for !rf.killed() {
 		select {
 
-		case <-startElectionCh:
-			rf.startElection()
+		case <-allowElectionCh:
+			rf.elect(allowElectionCh)
 
-		case <-startHeartbeatCh:
-			rf.startHeartbeat()
+		case <-allowHeartbeatCh:
+			rf.heartbeat(allowHeartbeatCh)
 		}
-	}
-}
-
-func (rf *Raft) electionTicker(startElectionCh chan bool) {
-	for !rf.killed() {
-		// Your code here (3A)
-		// Check if a leader election should be started.
-
-		// election timeout between 200ms and 300ms
-		ms := 200 + (rand.Int63() % 100)
-		electionTimeout := time.Duration(ms) * time.Millisecond
-
-		// assign election timeout
-		rf.mu.Lock()
-		rf.electionTimeout = electionTimeout
-		rf.mu.Unlock()
-
-		time.Sleep(electionTimeout)
-
-		// start election
-		startElectionCh <- true
-	}
-}
-
-func (rf *Raft) heartbeatTicker(startHeartbeatCh chan bool) {
-	for !rf.killed() {
-		// sleep 150 ms for heartbeat
-		time.Sleep(150 * time.Millisecond)
-		// start heartbeat
-		startHeartbeatCh <- true
 	}
 }
 
@@ -516,20 +516,11 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// start as follower
 	rf.state = Follower
 
-	startElectionCh := make(chan bool)
-	startHeartbeatCh := make(chan bool)
-
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
 
-	// start ticker goroutine to start elections
-	go rf.electionTicker(startElectionCh)
-
-	// start ticker goroutine to start heartbeat
-	go rf.heartbeatTicker(startHeartbeatCh)
-
 	// main loop
-	go rf.mainBackgroundLoop(startElectionCh, startHeartbeatCh)
+	go rf.ticker()
 
 	return rf
 }
