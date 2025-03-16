@@ -246,14 +246,52 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // capitalized all field names in structs passed over RPC, and
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
+func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
+	// send RequestVoteRPCs to all other servers in parallel
+	// use buffered channel to avoid blocking
+	votingCh := make(chan RequestVoteReply, len(rf.peers)-1)
+
+	for serverId, peer := range rf.peers {
+		if serverId != rf.me {
+			args := args
+
+			go func() {
+				reply := RequestVoteReply{}
+				ok := peer.Call("Raft.RequestVote", &args, &reply)
+				if ok {
+					votingCh <- reply
+				} else {
+					votingCh <- RequestVoteReply{Term: -1, VoteGranted: false}
+				}
+			}()
+		}
+	}
+
+	return votingCh
 }
 
-func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	return ok
+func (rf *Raft) sendAppendEntries(args AppendEntriesArgs) <-chan AppendEntriesReply {
+	// send AppendEntriesRPCs to all other servers in parallel
+	// use buffered channel to avoid blocking
+	appendEntriesCh := make(chan AppendEntriesReply, len(rf.peers)-1)
+
+	for serverId, peer := range rf.peers {
+		if serverId != rf.me {
+			args := args
+
+			go func() {
+				reply := AppendEntriesReply{}
+				ok := peer.Call("Raft.AppendEntries", &args, &reply)
+				if ok {
+					appendEntriesCh <- reply
+				} else {
+					appendEntriesCh <- AppendEntriesReply{Term: -1, Success: false}
+				}
+			}()
+		}
+	}
+
+	return appendEntriesCh
 }
 
 func (rf *Raft) elect(allowElectionCh chan<- bool) {
@@ -286,33 +324,16 @@ func (rf *Raft) elect(allowElectionCh chan<- bool) {
 	rf.currentTerm += 1 // increment current term
 	rf.votedFor = rf.me // vote for self
 
-	// save term to avoid another modification in other threads affect this term value
-	term := rf.currentTerm
-
-	// send RequestVoteRPCs to all other servers in parallel
-	// use buffered channel to avoid blocking
-	voteCh := make(chan RequestVoteReply, len(rf.peers)-1)
-	requestVoteArgs := RequestVoteArgs{
-		Term:         term,
+	args := RequestVoteArgs{
+		Term:         rf.currentTerm,
 		CandidateId:  rf.me,
 		LastLogIndex: rf.lastLogIndex(),
 		LastLogTerm:  rf.lastLogTerm(),
 	}
-	for serverId := range rf.peers {
-		if serverId != rf.me {
-			requestVoteArgs := requestVoteArgs
+	votingCh := rf.sendRequestVotes(args)
 
-			go func() {
-				reply := RequestVoteReply{}
-				ok := rf.sendRequestVote(serverId, &requestVoteArgs, &reply)
-				if ok {
-					voteCh <- reply
-				} else {
-					voteCh <- RequestVoteReply{Term: -1, VoteGranted: false}
-				}
-			}()
-		}
-	}
+	// save term to avoid another modification in other threads affect this term value
+	term := rf.currentTerm
 
 	// receive votes in the background
 	go func() {
@@ -327,7 +348,7 @@ func (rf *Raft) elect(allowElectionCh chan<- bool) {
 			case <-electionFinished:
 				return
 
-			case reply := <-voteCh:
+			case reply := <-votingCh:
 
 				// receive rpc with higher term, terminate election and become follower
 				if term < reply.Term {
@@ -387,27 +408,14 @@ func (rf *Raft) heartbeat(allowHeartbeatCh chan<- bool) {
 
 	log.Printf("%d: send heartbeat", rf.me)
 
+	args := AppendEntriesArgs{
+		Term: rf.currentTerm,
+		// TODO: more attrs
+	}
+	heartbeatCh := rf.sendAppendEntries(args)
+
 	// save term to avoid another modification in other threads affect this term value
 	term := rf.currentTerm
-
-	heartbeatCh := make(chan AppendEntriesReply, len(rf.peers)-1)
-	// send request votes in parallel
-	for serverId := range rf.peers {
-		if serverId != rf.me {
-			go func() {
-				appendEntriesArgs := AppendEntriesArgs{
-					Term: term,
-				}
-				reply := AppendEntriesReply{}
-				ok := rf.sendAppendEntries(serverId, &appendEntriesArgs, &reply)
-				if ok {
-					heartbeatCh <- reply
-				} else {
-					heartbeatCh <- AppendEntriesReply{Term: -1, Success: false}
-				}
-			}()
-		}
-	}
 
 	// receive heartbeat in the background
 	go func() {
