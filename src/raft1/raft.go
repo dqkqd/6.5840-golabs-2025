@@ -274,18 +274,23 @@ func (rf *Raft) startElection() {
 
 	log.Printf("%d: start election", rf.me)
 
+	// Rule for Servers: Candidate
 	rf.state = Candidate
-	rf.currentTerm += 1
-	rf.votedFor = rf.me
+	rf.currentTerm += 1 // increment current term
+	rf.votedFor = rf.me // vote for self
 
+	// save term to avoid another modification in other thread affect this election
+	term := rf.currentTerm
+
+	// send RequestVoteRPCs to all other servers in parallel
+	// use buffered channel to avoid blocking
 	voteCh := make(chan RequestVoteReply, len(rf.peers)-1)
 	requestVoteArgs := RequestVoteArgs{
-		Term:         rf.currentTerm,
+		Term:         term,
 		CandidateId:  rf.me,
 		LastLogIndex: rf.lastLogIndex(),
 		LastLogTerm:  rf.lastLogTerm(),
 	}
-	// send request votes in parallel
 	for serverId := range rf.peers {
 		if serverId != rf.me {
 			requestVoteArgs := requestVoteArgs
@@ -302,8 +307,6 @@ func (rf *Raft) startElection() {
 		}
 	}
 
-	votedTerm := rf.currentTerm
-
 	// receive votes in the background
 	go func() {
 		// we have voted for ourselves already
@@ -314,23 +317,23 @@ func (rf *Raft) startElection() {
 				totalVotes += 1
 			}
 
-			// someone has higher term, we should become follower right away
-			if votedTerm < reply.Term {
+			// receive rpc with higher term, terminate election and become follower
+			if term < reply.Term {
 				rf.mu.Lock()
 				defer rf.mu.Unlock()
 				// need to check again to make sure `rf.currentTerm` hasn't changed since
-				if rf.currentTerm <= reply.Term {
+				if rf.currentTerm < reply.Term {
 					rf.state = Follower
 				}
 				return
 			}
 
-			// we can become leader
-			if totalVotes*2 >= len(rf.peers) {
+			// if votes received from majority of servers: become leader
+			if totalVotes*2 > len(rf.peers) {
 				rf.mu.Lock()
 				defer rf.mu.Unlock()
 				// need to check again to make sure `rf.currentTerm` hasn't changed since
-				if rf.currentTerm == votedTerm {
+				if term == rf.currentTerm {
 					log.Printf("%d: become leader", rf.me)
 					rf.state = Leader
 				}
@@ -361,13 +364,16 @@ func (rf *Raft) startHeartbeat() {
 
 	log.Printf("%d: send heartbeat", rf.me)
 
+	// save term to avoid another modification in other threads affect this term value
+	term := rf.currentTerm
+
 	heartbeatCh := make(chan AppendEntriesReply, len(rf.peers)-1)
 	// send request votes in parallel
 	for serverId := range rf.peers {
 		if serverId != rf.me {
 			go func() {
 				appendEntriesArgs := AppendEntriesArgs{
-					Term: rf.currentTerm,
+					Term: term,
 				}
 				reply := AppendEntriesReply{}
 				ok := rf.sendAppendEntries(serverId, &appendEntriesArgs, &reply)
@@ -380,15 +386,12 @@ func (rf *Raft) startHeartbeat() {
 		}
 	}
 
-	// receive heart beat reply to check whether we should change ourselve into follower
-	votedTerm := rf.currentTerm
-
 	// receive votes in the background
 	go func() {
 		// we have voted for ourselves already
 		for reply := range heartbeatCh {
 			// someone has higher term, we should become follower right away
-			if votedTerm < reply.Term {
+			if term < reply.Term {
 				rf.mu.Lock()
 				defer rf.mu.Unlock()
 				// need to check again to make sure `rf.currentTerm` hasn't changed since
