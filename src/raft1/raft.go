@@ -44,7 +44,7 @@ type Raft struct {
 	// state a Raft server must maintain.
 
 	// Persistent state on all servers
-	currentTerm int64  // latest term server has seen (initialized to 0 on first boot, increase monotonically)
+	currentTerm int    // latest term server has seen (initialized to 0 on first boot, increase monotonically)
 	votedFor    int    // candidateId that received vote in current term (or `-1` if none)
 	log         []byte // log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 
@@ -64,13 +64,11 @@ type Raft struct {
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-	var term int
-	var isleader bool
 	// Your code here (3A).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	term = int(rf.currentTerm)
-	isleader = rf.state == Leader
+	term := rf.currentTerm
+	isleader := rf.state == Leader
 
 	return term, isleader
 }
@@ -129,17 +127,17 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 type AppendEntriesArgs struct {
-	Term         int64  // leader's term
+	Term         int    // leader's term
 	LeaderId     int    // so follower can redirect clients
 	PrevLogIndex int    // index of log entry immediately preceding new ones
-	PrevLogTerm  int64  // term of `PrevLogIndex` entry
+	PrevLogTerm  int    // term of `PrevLogIndex` entry
 	Entries      []byte // log entries to store (empty for heartbeat; may send more than one for efficiency)
 	LeaderCommit int    // leader's `commitIndex`
 }
 
 type AppendEntriesReply struct {
-	Term    int64 // currentTerm, for leader to update itself
-	Success bool  // true if follower contained entry matching prevLogIndex and prevLogTerm
+	Term    int  // currentTerm, for leader to update itself
+	Success bool // true if follower contained entry matching prevLogIndex and prevLogTerm
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
@@ -174,18 +172,18 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (3A, 3B).
-	Term         int64 // candidate's term
-	CandidateId  int   // candidate requesting vote
-	LastLogIndex int   // index of candidate's last log entry
-	LastLogTerm  int64 // term of candidate's last log entry
+	Term         int // candidate's term
+	CandidateId  int // candidate requesting vote
+	LastLogIndex int // index of candidate's last log entry
+	LastLogTerm  int // term of candidate's last log entry
 }
 
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type RequestVoteReply struct {
 	// Your data here (3A).
-	Term        int64 // CurrentTerm, for candidate to update itself
-	VoteGranted bool  // true means candidate received vote
+	Term        int  // CurrentTerm, for candidate to update itself
+	VoteGranted bool // true means candidate received vote
 }
 
 // example RequestVote RPC handler.
@@ -296,7 +294,7 @@ func (rf *Raft) sendAppendEntries(args AppendEntriesArgs) <-chan AppendEntriesRe
 
 // change term based on Rule for All Servers,
 // lock must not be hold
-func (rf *Raft) changeTerm(term int64) {
+func (rf *Raft) changeTerm(term int) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if term > rf.currentTerm {
@@ -392,7 +390,7 @@ func (rf *Raft) lastLogIndex() int {
 	return 0
 }
 
-func (rf *Raft) lastLogTerm() int64 {
+func (rf *Raft) lastLogTerm() int {
 	// TODO: implement
 	return 0
 }
