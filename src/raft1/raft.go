@@ -57,7 +57,9 @@ type Raft struct {
 	matchIndex []int // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 
 	// optional fields
-	state serverState // state of the server: leader, follower, or candidate
+	state                 serverState // state of the server: leader, follower, or candidate
+	electionTimeout       time.Duration
+	latestAppendEntriesAt time.Time // the latest time we received the entries, since we only save this to compute the monotonical timediff, it is fine
 }
 
 // return currentTerm and whether this server
@@ -231,6 +233,12 @@ func (rf *Raft) startElection() {
 		return
 	}
 
+	// do not start election if we received heartbeat without timeout
+	shouldStartElection := time.Since(rf.latestAppendEntriesAt) > rf.electionTimeout
+	if !shouldStartElection {
+		return
+	}
+
 	log.Printf("%d: start election", rf.me)
 
 	rf.state = Candidate
@@ -369,8 +377,15 @@ func (rf *Raft) electionTicker(startElectionCh chan bool) {
 		// Check if a leader election should be started.
 
 		// election timeout between 200ms and 300ms
-		electionTimeout := 200 + (rand.Int63() % 100)
-		time.Sleep(time.Duration(electionTimeout) * time.Millisecond)
+		ms := 200 + (rand.Int63() % 100)
+		electionTimeout := time.Duration(ms) * time.Millisecond
+
+		// assign election timeout
+		rf.mu.Lock()
+		rf.electionTimeout = electionTimeout
+		rf.mu.Unlock()
+
+		time.Sleep(electionTimeout)
 
 		// start election
 		startElectionCh <- true
