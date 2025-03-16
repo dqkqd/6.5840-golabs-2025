@@ -166,23 +166,27 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	defer rf.mu.Unlock()
 
 	if rf.currentTerm < args.Term {
-		// lower term, vote for this candidate and become follower
+		// become this candidate's follower
 		rf.currentTerm = args.Term
 		rf.state = Follower
 		rf.votedFor = args.CandidateId
 
 		reply.Term = args.Term
 		reply.VoteGranted = true
+
 	} else if rf.currentTerm > args.Term {
 		// higher term, do not vote
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
+
 	} else if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 		// equal term, we haven't vote or we have voted for this candidate already
 		// TODO: compare log
 		rf.votedFor = args.CandidateId
+
 		reply.Term = args.Term
 		reply.VoteGranted = true
+
 	}
 }
 
@@ -243,7 +247,9 @@ func (rf *Raft) startElection() {
 	// send request votes in parallel
 	for serverId := range rf.peers {
 		if serverId != rf.me {
-			go func(requestVoteArgs RequestVoteArgs) {
+			requestVoteArgs := requestVoteArgs
+
+			go func() {
 				reply := RequestVoteReply{}
 				ok := rf.sendRequestVote(serverId, &requestVoteArgs, &reply)
 				if ok {
@@ -251,12 +257,14 @@ func (rf *Raft) startElection() {
 				} else {
 					voteCh <- RequestVoteReply{Term: -1, VoteGranted: false}
 				}
-			}(requestVoteArgs)
+			}()
 		}
 	}
 
+	votedTerm := rf.currentTerm
+
 	// receive votes in the background
-	go func(votedTerm int64) {
+	go func() {
 		// we have voted for ourselves already
 		totalVotes := 1
 		for reply := range voteCh {
@@ -288,17 +296,17 @@ func (rf *Raft) startElection() {
 				return
 			}
 		}
-	}(rf.currentTerm)
+	}()
 }
 
 func (rf *Raft) lastLogIndex() int {
 	// TODO: implement
-	return -1
+	return 0
 }
 
 func (rf *Raft) lastLogTerm() int64 {
 	// TODO: implement
-	return -1
+	return 0
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
@@ -313,7 +321,7 @@ func (rf *Raft) lastLogTerm() int64 {
 // if it's ever committed. the second return value is the current
 // term. the third return value is true if this server believes it is
 // the leader.
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
+func (rf *Raft) Start(command any) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
