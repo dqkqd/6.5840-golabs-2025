@@ -23,6 +23,38 @@ import (
 	tester "6.5840/tester1"
 )
 
+type waitNotifier struct {
+	waitedFor     <-chan time.Duration // notify outer that we have finished waiting a cycle
+	timerModifier chan<- time.Duration // allow outer to modify waiting timer
+}
+
+func waitNotify(defaultTimeout time.Duration) waitNotifier {
+	waitedFor := make(chan time.Duration)
+	timerModifier := make(chan time.Duration)
+
+	go func() {
+		timeout := defaultTimeout
+		waitingCh := time.After(timeout)
+		// TODO: should we have `rf.killed` here?
+		for {
+			select {
+
+			// wait and loop
+			case <-waitingCh:
+				waitedFor <- timeout
+				waitingCh = time.After(timeout)
+
+			// reset if receiving a new timer
+			case t := <-timerModifier:
+				timeout = t
+				waitingCh = time.After(timeout)
+			}
+		}
+	}()
+
+	return waitNotifier{waitedFor, timerModifier}
+}
+
 type serverState int
 
 const (
@@ -303,35 +335,30 @@ func (rf *Raft) changeTerm(term int) {
 	}
 }
 
-func (rf *Raft) elect(allowElectionCh chan<- bool) {
+func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time.Duration) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	// election timer: between 200ms and 300ms
-	ms := 200 + (rand.Int63() % 100)
-	timeout := time.Duration(ms) * time.Millisecond
+	// if we are follower, then this should be the first time we send votes.
+	// if we are candidate, then we have been sending votes for a while but could not become the leader.
+	// otherwise, we are leader and should not start election
+	if rf.state != Follower && rf.state != Candidate {
+		return
+	}
 
-	electionFinished := make(chan bool)
-	go func() {
-		<-time.After(timeout)
-		allowElectionCh <- true
-		electionFinished <- true
-	}()
-
-	canSendVotes := rf.state == Follower || rf.state == Candidate
-	shouldSendVotes := time.Since(rf.latestAppendEntriesAt) >= timeout
-
-	// cannot start election
-	if !canSendVotes || !shouldSendVotes {
+	// If we are follower, we do not want to start an election if we receive heartbeat periodically
+	if rf.state == Follower && time.Since(rf.latestAppendEntriesAt) < currentElectionTimeout {
 		return
 	}
 
 	log.Printf("%d: start election", rf.me)
 
-	// Rule for Servers: Candidate
 	rf.state = Candidate
 	rf.currentTerm += 1 // increment current term
 	rf.votedFor = rf.me // vote for self
+
+	timeout := electionTimeout()
+	electionNotifier.timerModifier <- timeout // reset election timeout
 
 	args := RequestVoteArgs{
 		Term:         rf.currentTerm,
@@ -339,28 +366,29 @@ func (rf *Raft) elect(allowElectionCh chan<- bool) {
 		LastLogIndex: rf.lastLogIndex(),
 		LastLogTerm:  rf.lastLogTerm(),
 	}
-	votingCh := rf.sendRequestVotes(args)
 
-	// save term to avoid another modification in other threads affect this term value
-	term := rf.currentTerm
-
-	// receive votes in the background
+	// voting starts in the background thread
 	go func() {
-		// we have voted for ourselves already
+		votingCh := rf.sendRequestVotes(args)
+
+		// we have voted for ourselves already, so this should become 1
 		totalVotes := 1
+
+		// make sure we are not waiting all days
+		electionTimeoutCh := time.After(timeout)
 
 		// waiting from vote channels and timeout
 		for !rf.killed() {
 			select {
 
 			// timeout
-			case <-electionFinished:
+			case <-electionTimeoutCh:
 				return
 
 			case reply := <-votingCh:
 
 				// receive rpc with higher term, terminate election and become follower
-				if term < reply.Term {
+				if args.Term < reply.Term {
 					rf.changeTerm(reply.Term)
 					return
 				}
@@ -373,8 +401,9 @@ func (rf *Raft) elect(allowElectionCh chan<- bool) {
 				if totalVotes*2 > len(rf.peers) {
 					rf.mu.Lock()
 					defer rf.mu.Unlock()
-					// need to check again to make sure `rf.currentTerm` hasn't changed since
-					if term == rf.currentTerm {
+					// rf.currentTerm might be changed at somepoint, when we became leader, or when we became follower.
+					// Hence, we need to check the current term again to make sure we are in the right term.
+					if args.Term == rf.currentTerm {
 						log.Printf("%d: become leader", rf.me)
 						rf.state = Leader
 					}
@@ -395,15 +424,9 @@ func (rf *Raft) lastLogTerm() int {
 	return 0
 }
 
-func (rf *Raft) heartbeat(allowHeartbeatCh chan<- bool) {
+func (rf *Raft) heartbeat() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-
-	go func() {
-		// heartbeat timer: 150ms
-		<-time.After(150 * time.Millisecond)
-		allowHeartbeatCh <- true
-	}()
 
 	// only leader can send heart beat
 	if rf.state != Leader {
@@ -416,16 +439,13 @@ func (rf *Raft) heartbeat(allowHeartbeatCh chan<- bool) {
 		Term: rf.currentTerm,
 		// TODO: more attrs
 	}
-	heartbeatCh := rf.sendAppendEntries(args)
 
-	// save term to avoid another modification in other threads affect this term value
-	term := rf.currentTerm
-
-	// receive heartbeat in the background
+	// sending and receiving heartbeat in the background
 	go func() {
+		heartbeatCh := rf.sendAppendEntries(args)
 		for reply := range heartbeatCh {
 			// someone with higher term exists, abort
-			if term < reply.Term {
+			if args.Term < reply.Term {
 				rf.changeTerm(reply.Term)
 				return
 			}
@@ -474,23 +494,29 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
-func (rf *Raft) ticker() {
-	allowElectionCh := make(chan bool)
-	allowHeartbeatCh := make(chan bool)
+func electionTimeout() time.Duration {
+	// election timeout: between 200ms and 300ms
+	ms := 200 + (rand.Int63() % 100)
+	return time.Duration(ms) * time.Millisecond
+}
 
-	go func() {
-		allowElectionCh <- true
-		allowHeartbeatCh <- true
-	}()
+func heartbeatTimeout() time.Duration {
+	// heartbeat timeout: 150ms
+	return 150 * time.Millisecond
+}
+
+func (rf *Raft) ticker() {
+	electionNotifier := waitNotify(electionTimeout())
+	heartbeatNotifier := waitNotify(heartbeatTimeout())
 
 	for !rf.killed() {
 		select {
 
-		case <-allowElectionCh:
-			rf.elect(allowElectionCh)
+		case currentElectionTimeout := <-electionNotifier.waitedFor:
+			rf.elect(electionNotifier, currentElectionTimeout)
 
-		case <-allowHeartbeatCh:
-			rf.heartbeat(allowHeartbeatCh)
+		case <-heartbeatNotifier.waitedFor:
+			rf.heartbeat()
 		}
 	}
 }
