@@ -9,10 +9,7 @@ package raft
 import (
 	//	"bytes"
 
-	"io"
-	"log"
 	"math/rand"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -351,7 +348,7 @@ func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time
 		return
 	}
 
-	log.Printf("%d: start election", rf.me)
+	DPrintf("%d: start election", rf.me)
 
 	rf.state = Candidate
 	rf.currentTerm += 1 // increment current term
@@ -404,7 +401,7 @@ func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time
 					// rf.currentTerm might be changed at somepoint, when we became leader, or when we became follower.
 					// Hence, we need to check the current term again to make sure we are in the right term.
 					if args.Term == rf.currentTerm {
-						log.Printf("%d: become leader", rf.me)
+						DPrintf("%d: become leader", rf.me)
 						rf.state = Leader
 					}
 					return
@@ -433,7 +430,7 @@ func (rf *Raft) heartbeat() {
 		return
 	}
 
-	log.Printf("%d: send heartbeat", rf.me)
+	DPrintf("%d: send heartbeat", rf.me)
 
 	args := AppendEntriesArgs{
 		Term: rf.currentTerm,
@@ -533,12 +530,6 @@ func (rf *Raft) ticker() {
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *tester.Persister, applyCh chan raftapi.ApplyMsg,
 ) raftapi.Raft {
-	// disable log for real test
-	enableLog := os.Getenv("ENABLE_LOG") == "1"
-	if !enableLog {
-		log.SetOutput(io.Discard)
-	}
-
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister
