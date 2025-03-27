@@ -20,38 +20,6 @@ import (
 	tester "6.5840/tester1"
 )
 
-type waitNotifier struct {
-	waitedFor     <-chan time.Duration // notify outer that we have finished waiting a cycle
-	timerModifier chan<- time.Duration // allow outer to modify waiting timer
-}
-
-func waitNotify(defaultTimeout time.Duration) waitNotifier {
-	waitedFor := make(chan time.Duration)
-	timerModifier := make(chan time.Duration)
-
-	go func() {
-		timeout := defaultTimeout
-		waitingCh := time.After(timeout)
-		// TODO: should we have `rf.killed` here?
-		for {
-			select {
-
-			// wait and loop
-			case <-waitingCh:
-				waitedFor <- timeout
-				waitingCh = time.After(timeout)
-
-			// reset if receiving a new timer
-			case t := <-timerModifier:
-				timeout = t
-				waitingCh = time.After(timeout)
-			}
-		}
-	}()
-
-	return waitNotifier{waitedFor, timerModifier}
-}
-
 type serverState int
 
 const (
@@ -355,7 +323,7 @@ func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time
 	rf.votedFor = rf.me // vote for self
 
 	timeout := electionTimeout()
-	electionNotifier.timerModifier <- timeout // reset election timeout
+	electionNotifier.changeTimeout(timeout) // reset election timeout
 
 	args := RequestVoteArgs{
 		Term:         rf.currentTerm,
