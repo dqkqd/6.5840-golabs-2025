@@ -189,28 +189,34 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	// Rules for Servers: lower term, change to follower
 	if rf.currentTerm < args.Term {
-		// become this candidate's follower
 		rf.currentTerm = args.Term
-		rf.state = Follower
 		rf.votedFor = args.CandidateId
-
+		rf.state = Follower
 		reply.Term = args.Term
 		reply.VoteGranted = true
+		return
+	}
 
-	} else if rf.currentTerm > args.Term {
-		// higher term, do not vote
+	// RequestVote rule 1: reply false if request's term < current term
+	if rf.currentTerm > args.Term {
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
+		return
+	}
 
-	} else if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
-		// equal term, we haven't vote or we have voted for this candidate already
-		// TODO: compare log
-		rf.votedFor = args.CandidateId
-
-		reply.Term = args.Term
-		reply.VoteGranted = true
-
+	// RequestVote rule 2: voted for is null or candidate id
+	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
+		// and candidate's log is as least as up-to-date
+		lastLogIndex := len(rf.log) - 1
+		lastLogTerm := rf.log[lastLogIndex].Term
+		if args.LastLogTerm > lastLogTerm || (args.LastLogTerm == lastLogTerm && args.LastLogIndex >= lastLogIndex) {
+			// then we should vote
+			rf.votedFor = args.CandidateId
+			reply.Term = args.Term
+			reply.VoteGranted = true
+		}
 	}
 }
 
@@ -243,7 +249,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
 	// send RequestVoteRPCs to all other servers in parallel
-	// use buffered channel to avoid blocking
+	// TODO: need a way to stop looping, do we need a done ch?
+
+	// result is collected in `votingCh`
+	// buffered channel is used to avoid blocking
 	votingCh := make(chan RequestVoteReply, len(rf.peers)-1)
 
 	for serverId, peer := range rf.peers {
@@ -251,12 +260,14 @@ func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
 			args := args
 
 			go func() {
-				reply := RequestVoteReply{}
-				ok := peer.Call("Raft.RequestVote", &args, &reply)
-				if ok {
-					votingCh <- reply
-				} else {
-					votingCh <- RequestVoteReply{Term: -1, VoteGranted: false}
+				for !rf.killed() {
+					reply := RequestVoteReply{}
+					ok := peer.Call("Raft.RequestVote", &args, &reply)
+					if ok {
+						votingCh <- reply
+						return
+					}
+					sleep()
 				}
 			}()
 		}
@@ -325,11 +336,12 @@ func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time
 	timeout := electionTimeout()
 	electionNotifier.changeTimeout(timeout) // reset election timeout
 
+	lastLogIndex := len(rf.log) - 1
 	args := RequestVoteArgs{
 		Term:         rf.currentTerm,
 		CandidateId:  rf.me,
-		LastLogIndex: rf.lastLogIndex(),
-		LastLogTerm:  rf.lastLogTerm(),
+		LastLogIndex: lastLogIndex,
+		LastLogTerm:  rf.log[lastLogIndex].Term,
 	}
 
 	// voting starts in the background thread
@@ -352,7 +364,7 @@ func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time
 
 			case reply := <-votingCh:
 
-				// receive rpc with higher term, terminate election and become follower
+				// Rules for Servers: lower term, change to follower
 				if args.Term < reply.Term {
 					rf.changeTerm(reply.Term)
 					return
@@ -377,16 +389,6 @@ func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time
 			}
 		}
 	}()
-}
-
-func (rf *Raft) lastLogIndex() int {
-	// TODO: implement
-	return 0
-}
-
-func (rf *Raft) lastLogTerm() int {
-	// TODO: implement
-	return 0
 }
 
 func (rf *Raft) heartbeat() {
@@ -470,6 +472,11 @@ func heartbeatTimeout() time.Duration {
 	return 150 * time.Millisecond
 }
 
+// loop shouldn't execute continuouslly without waiting
+func sleep() {
+	time.Sleep(10 * time.Millisecond)
+}
+
 func (rf *Raft) ticker() {
 	electionNotifier := waitNotify(electionTimeout())
 	heartbeatNotifier := waitNotify(heartbeatTimeout())
@@ -507,6 +514,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// start as follower
 	rf.state = Follower
+
+	// hasn't voted for any one
+	rf.votedFor = -1
 
 	// rafg log is 1-indexed, but we start with an entry at term 0
 	rf.log = []raftLog{}
