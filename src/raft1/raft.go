@@ -494,11 +494,29 @@ func (rf *Raft) heartbeat() {
 // term. the third return value is true if this server believes it is
 // the leader.
 func (rf *Raft) Start(command any) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
-
 	// Your code here (3B).
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	index := len(rf.log)
+	term := rf.currentTerm
+	isLeader := rf.state == Leader
+
+	if !isLeader {
+		return index, term, isLeader
+	}
+
+	// TODO: persist the log to disk
+
+	// append the log
+	rf.log = append(rf.log, raftLog{command, term})
+
+	for peerId := range rf.peers {
+		go func() {
+			rf.sendAppendEntries(peerId, term)
+		}()
+	}
 
 	return index, term, isLeader
 }
