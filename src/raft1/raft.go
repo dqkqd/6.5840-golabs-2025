@@ -41,9 +41,9 @@ type Raft struct {
 	// state a Raft server must maintain.
 
 	// Persistent state on all servers
-	currentTerm int    // latest term server has seen (initialized to 0 on first boot, increase monotonically)
-	votedFor    int    // candidateId that received vote in current term (or `-1` if none)
-	log         []byte // log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
+	currentTerm int       // latest term server has seen (initialized to 0 on first boot, increase monotonically)
+	votedFor    int       // candidateId that received vote in current term (or `-1` if none)
+	log         []raftLog // log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 
 	// Volatile state on all servers
 	commitIndex int // index of highest log entry known to be committed (initialized to 0, increase monotinically)
@@ -124,12 +124,12 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 type AppendEntriesArgs struct {
-	Term         int    // leader's term
-	LeaderId     int    // so follower can redirect clients
-	PrevLogIndex int    // index of log entry immediately preceding new ones
-	PrevLogTerm  int    // term of `PrevLogIndex` entry
-	Entries      []byte // log entries to store (empty for heartbeat; may send more than one for efficiency)
-	LeaderCommit int    // leader's `commitIndex`
+	Term         int       // leader's term
+	LeaderId     int       // so follower can redirect clients
+	PrevLogIndex int       // index of log entry immediately preceding new ones
+	PrevLogTerm  int       // term of `PrevLogIndex` entry
+	Entries      []raftLog // log entries to store (empty for heartbeat; may send more than one for efficiency)
+	LeaderCommit int       // leader's `commitIndex`
 }
 
 type AppendEntriesReply struct {
@@ -507,6 +507,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// start as follower
 	rf.state = Follower
+
+	// rafg log is 1-indexed, but we start with an entry at term 0
+	rf.log = []raftLog{}
+	rf.log = append(rf.log, raftLog{Term: 0})
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
