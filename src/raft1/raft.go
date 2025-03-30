@@ -54,8 +54,10 @@ type Raft struct {
 	matchIndex []int // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 
 	// optional fields
-	state                 serverState // state of the server: leader, follower, or candidate
-	latestAppendEntriesAt time.Time   // the latest time we received the entries, since we only save this to compute the monotonical timediff, it is fine
+	state                 serverState  // state of the server: leader, follower, or candidate
+	latestAppendEntriesAt time.Time    // the latest time we received the entries, since we only save this to compute the monotonical timediff, it is fine
+	electionNotifier      waitNotifier // notify and reset election timeout)
+	heartbeatNotifier     waitNotifier // notify heartbeat
 }
 
 // return currentTerm and whether this server
@@ -374,7 +376,7 @@ func (rf *Raft) changeTerm(term int) {
 	}
 }
 
-func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time.Duration) {
+func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
@@ -397,7 +399,7 @@ func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time
 	rf.votedFor = rf.me // vote for self
 
 	timeout := electionTimeout()
-	electionNotifier.changeTimeout(timeout) // reset election timeout
+	rf.electionNotifier.changeTimeout(timeout) // reset election timeout
 
 	lastLogIndex := len(rf.log) - 1
 	args := RequestVoteArgs{
@@ -557,16 +559,13 @@ func sleep() {
 }
 
 func (rf *Raft) ticker() {
-	electionNotifier := waitNotify(electionTimeout())
-	heartbeatNotifier := waitNotify(heartbeatTimeout())
-
 	for !rf.killed() {
 		select {
 
-		case currentElectionTimeout := <-electionNotifier.waitedFor:
-			rf.elect(electionNotifier, currentElectionTimeout)
+		case currentElectionTimeout := <-rf.electionNotifier.waitedFor:
+			rf.elect(currentElectionTimeout)
 
-		case <-heartbeatNotifier.waitedFor:
+		case <-rf.heartbeatNotifier.waitedFor:
 			rf.heartbeat()
 		}
 	}
@@ -600,6 +599,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// rafg log is 1-indexed, but we start with an entry at term 0
 	rf.log = []raftLog{}
 	rf.log = append(rf.log, raftLog{Term: 0})
+
+	// initialize election and heartbeat notifier
+	rf.electionNotifier = waitNotify(electionTimeout())
+	rf.heartbeatNotifier = waitNotify(heartbeatTimeout())
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
