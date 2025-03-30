@@ -446,6 +446,11 @@ func (rf *Raft) elect(electionNotifier waitNotifier, currentElectionTimeout time
 					if args.Term == rf.currentTerm {
 						DPrintf("%d: become leader", rf.me)
 						rf.state = Leader
+
+						rf.nextIndex = make([]int, len(rf.peers))
+						for peerId := range rf.peers {
+							rf.nextIndex[peerId] = len(rf.log)
+						}
 					}
 					return
 				}
