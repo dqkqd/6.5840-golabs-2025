@@ -145,23 +145,59 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// record the time when we received the AppendEntries
 	rf.latestAppendEntriesAt = time.Now()
 
-	if rf.currentTerm < args.Term {
-		// lower term, change to follower and return
-		rf.currentTerm = args.Term
-		rf.state = Follower
-
-		reply.Term = args.Term
-		reply.Success = true
-
-	} else if rf.currentTerm > args.Term {
-		// higher term, reply with current term so others can update
+	// AppendEntries rule 1: reply false for smaller term from leader
+	if rf.currentTerm > args.Term {
 		reply.Term = rf.currentTerm
 		reply.Success = false
+		return
+	}
 
-	} else {
-		// equal term
-		// TODO: do something with the entries
-		reply.Success = true
+	// Rules for Servers: lower term, change to follower
+	if rf.currentTerm < args.Term {
+		rf.currentTerm = args.Term
+		rf.state = Follower
+		rf.votedFor = args.LeaderId
+	}
+
+	reply.Term = args.Term
+
+	// AppendEntries rule 2: reply false
+	// if log doesn't contain entry at prevLogIndex whose term match prevLogTerm
+	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		reply.Success = false
+		return
+	}
+
+	reply.Success = true
+
+	index := 0
+	for index < len(args.Entries) {
+		logIndex := args.PrevLogIndex + 1 + index
+		if len(rf.log) <= logIndex {
+			break
+		}
+
+		// AppendEntries rule 3: find conflicted entry with the same index but different term
+		// and delete conflicted entry and all that follow it
+		if rf.log[logIndex].Term != args.Entries[index].Term {
+			rf.log = rf.log[:logIndex]
+			break
+		}
+
+		index++
+	}
+
+	// AppendEntries rule 4: append any new entries not already in the log.
+	// If we exited the loop earlier, then there were 2 cases:
+	// - exceeding `rf.log` len.
+	// - conflicting, and `rf.log` was truncated
+	// in either case, we need to append the remaining entries.
+	// otherwise, we traversed all entries thus the append does nothing.
+	rf.log = append(rf.log, args.Entries[index:]...)
+
+	// AppendEntries rule 5: change commit index
+	if args.LeaderCommit > rf.commitIndex {
+		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
 	}
 }
 
@@ -276,28 +312,55 @@ func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
 	return votingCh
 }
 
-func (rf *Raft) sendAppendEntries(args AppendEntriesArgs) <-chan AppendEntriesReply {
-	// send AppendEntriesRPCs to all other servers in parallel
-	// use buffered channel to avoid blocking
-	appendEntriesCh := make(chan AppendEntriesReply, len(rf.peers)-1)
-
-	for serverId, peer := range rf.peers {
-		if serverId != rf.me {
-			args := args
-
-			go func() {
-				reply := AppendEntriesReply{}
-				ok := peer.Call("Raft.AppendEntries", &args, &reply)
-				if ok {
-					appendEntriesCh <- reply
-				} else {
-					appendEntriesCh <- AppendEntriesReply{Term: -1, Success: false}
-				}
-			}()
-		}
+// looping and send append entries to a peer until agreement is reached
+func (rf *Raft) sendAppendEntries(peerId int, term int) {
+	// do not send to self
+	if rf.me == peerId {
+		return
 	}
 
-	return appendEntriesCh
+	// TODO: stop this loop if it is elected again?
+	// TODO: stop if we are not the leader any more? This requires lock.
+	peer := rf.peers[peerId]
+
+	for !rf.killed() {
+
+		// construct entries for peer's args
+		rf.mu.Lock()
+		prevLogIndex := rf.nextIndex[peerId] - 1
+		args := AppendEntriesArgs{
+			Term:         term,
+			LeaderId:     rf.me,
+			PrevLogIndex: prevLogIndex,
+			PrevLogTerm:  rf.log[prevLogIndex].Term,
+			Entries:      rf.log[prevLogIndex+1:],
+			LeaderCommit: rf.commitIndex,
+		}
+		rf.mu.Unlock()
+
+		reply := AppendEntriesReply{}
+		ok := peer.Call("Raft.AppendEntries", &args, &reply)
+		if !ok {
+			sleep()
+			continue
+		}
+
+		// appending successfully, no need to send any append entries
+		if reply.Success {
+			return
+		}
+
+		// term has been changed from peer
+		if reply.Term > args.Term {
+			rf.changeTerm(reply.Term)
+			return
+		}
+
+		// rejection, decrement nextIndex and retry
+		rf.mu.Lock()
+		rf.nextIndex[peerId]--
+		rf.mu.Unlock()
+	}
 }
 
 // change term based on Rule for All Servers,
@@ -402,22 +465,15 @@ func (rf *Raft) heartbeat() {
 
 	DPrintf("%d: send heartbeat", rf.me)
 
-	args := AppendEntriesArgs{
-		Term: rf.currentTerm,
-		// TODO: more attrs
-	}
+	term := rf.currentTerm
 
-	// sending and receiving heartbeat in the background
-	go func() {
-		heartbeatCh := rf.sendAppendEntries(args)
-		for reply := range heartbeatCh {
-			// someone with higher term exists, abort
-			if args.Term < reply.Term {
-				rf.changeTerm(reply.Term)
-				return
-			}
-		}
-	}()
+	// send heartbeat, because leader initialized all `nextIndex` to be the last entry
+	// in the log, so all `entries` should be empty.
+	for peerId := range rf.peers {
+		go func() {
+			rf.sendAppendEntries(peerId, term)
+		}()
+	}
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
