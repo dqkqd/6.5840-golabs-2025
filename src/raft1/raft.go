@@ -452,7 +452,16 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 						rf.nextIndex = make([]int, len(rf.peers))
 						for peerId := range rf.peers {
 							rf.nextIndex[peerId] = len(rf.log)
+
+							// send initial heartbeat to each servers
+							go func() {
+								rf.sendAppendEntries(peerId, args.Term)
+							}()
 						}
+
+						// reset heartbeat
+						rf.heartbeatNotifier.changeTimeout(heartbeatTimeout())
+
 					}
 					return
 				}
