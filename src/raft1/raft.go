@@ -203,6 +203,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
 		rf.applyCommand()
 	}
+
+	DPrintf("%d: received append entries, append success, log: %v\n", rf.me, rf.log)
 }
 
 // example RequestVote RPC arguments structure.
@@ -348,6 +350,7 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 			Entries:      rf.log[prevLogIndex+1:],
 			LeaderCommit: rf.commitIndex,
 		}
+		DPrintf("%d: send append entries to %d: %v\n", rf.me, peerId, args)
 		rf.mu.Unlock()
 
 		reply := AppendEntriesReply{}
