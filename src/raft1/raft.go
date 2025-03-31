@@ -332,6 +332,7 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 		// construct entries for peer's args
 		rf.mu.Lock()
 		prevLogIndex := rf.nextIndex[peerId] - 1
+		replicatedIndex := len(rf.log) - 1
 		args := AppendEntriesArgs{
 			Term:         term,
 			LeaderId:     rf.me,
@@ -351,6 +352,32 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 
 		// appending successfully, no need to send any append entries
 		if reply.Success {
+			rf.mu.Lock()
+
+			// find majority replicated entries to commit
+
+			rf.nextIndex[peerId] = replicatedIndex + 1
+			rf.matchIndex[peerId] = prevLogIndex
+
+			// find majority of replicated index
+			for n := replicatedIndex; n > rf.commitIndex; n-- {
+				if rf.log[n].Term == rf.currentTerm {
+					replicatedCount := 1 // self should be count
+					for i := range rf.peers {
+						if rf.me != i && rf.matchIndex[i] >= n {
+							replicatedCount++
+						}
+					}
+					// majority of servers have been replicated
+					if replicatedCount*2 > len(rf.peers) {
+						rf.commitIndex = n
+						rf.applyCommand()
+						break
+					}
+				}
+			}
+
+			rf.mu.Unlock()
 			return
 		}
 
