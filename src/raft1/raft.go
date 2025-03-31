@@ -331,6 +331,13 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 
 		// construct entries for peer's args
 		rf.mu.Lock()
+
+		// do not send append tries if we are not leader
+		if rf.state != Leader {
+			rf.mu.Unlock()
+			return
+		}
+
 		prevLogIndex := rf.nextIndex[peerId] - 1
 		replicatedIndex := len(rf.log) - 1
 		args := AppendEntriesArgs{
