@@ -536,8 +536,10 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	// TODO: persist the log to disk
 
 	// append the log
-	rf.log = append(rf.log, raftLog{command, term})
+	entry := raftLog{command, term}
+	rf.log = append(rf.log, entry)
 
+	DPrintf("%d: start agreement for entry: %v\n", rf.me, entry)
 	for peerId := range rf.peers {
 		go func() {
 			rf.sendAppendEntries(peerId, term)
