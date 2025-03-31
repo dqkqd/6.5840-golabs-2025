@@ -54,10 +54,11 @@ type Raft struct {
 	matchIndex []int // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 
 	// optional fields
-	state                 serverState  // state of the server: leader, follower, or candidate
-	latestAppendEntriesAt time.Time    // the latest time we received the entries, since we only save this to compute the monotonical timediff, it is fine
-	electionNotifier      waitNotifier // notify and reset election timeout)
-	heartbeatNotifier     waitNotifier // notify heartbeat
+	state                 serverState           // state of the server: leader, follower, or candidate
+	latestAppendEntriesAt time.Time             // the latest time we received the entries, since we only save this to compute the monotonical timediff, it is fine
+	electionNotifier      waitNotifier          // notify and reset election timeout)
+	heartbeatNotifier     waitNotifier          // notify heartbeat
+	applyCh               chan raftapi.ApplyMsg // apply channel to state machine
 }
 
 // return currentTerm and whether this server
@@ -598,6 +599,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (3A, 3B, 3C).
+	rf.applyCh = applyCh
 
 	// start as follower
 	rf.state = Follower
