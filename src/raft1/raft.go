@@ -201,6 +201,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// AppendEntries rule 5: change commit index
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
+		rf.applyCommand()
 	}
 }
 
@@ -404,6 +405,32 @@ func (rf *Raft) becomeLeader() {
 
 	// reset heartbeat
 	rf.heartbeatNotifier.changeTimeout(heartbeatTimeout())
+}
+
+// apply log to state machine
+func (rf *Raft) applyCommand() {
+	go func() {
+		rf.mu.Lock()
+		defer rf.mu.Unlock()
+
+		for !rf.killed() {
+			if rf.lastApplied == rf.commitIndex {
+				return
+			}
+
+			// do not send index-0
+			rf.lastApplied++
+
+			rf.applyCh <- raftapi.ApplyMsg{
+				CommandValid: true,
+				Command:      rf.log[rf.lastApplied].Command,
+				CommandIndex: rf.lastApplied,
+			}
+
+			DPrintf("%d: applied to state machine, command: %v, index=%d\n", rf.me, rf.log[rf.lastApplied], rf.lastApplied)
+
+		}
+	}()
 }
 
 func (rf *Raft) elect(currentElectionTimeout time.Duration) {
