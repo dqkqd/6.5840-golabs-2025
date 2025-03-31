@@ -377,6 +377,35 @@ func (rf *Raft) changeTerm(term int) {
 	}
 }
 
+// leader initialization, outer code need to hold lock
+func (rf *Raft) becomeLeader() {
+	DPrintf("%d: become leader", rf.me)
+
+	rf.state = Leader
+
+	DPrintf("%d: send initial append entries", rf.me)
+
+	rf.nextIndex = make([]int, len(rf.peers))
+	rf.matchIndex = make([]int, len(rf.peers))
+	for peerId := range rf.peers {
+
+		// volatile on leader on election: nextIndex = last log index + 1
+		rf.nextIndex[peerId] = len(rf.log)
+
+		// volatile on leader on election: matchIndex = 0
+		rf.matchIndex[peerId] = len(rf.log)
+
+		// send initial heartbeat to each servers
+		term := rf.currentTerm
+		go func() {
+			rf.sendAppendEntries(peerId, term)
+		}()
+	}
+
+	// reset heartbeat
+	rf.heartbeatNotifier.changeTimeout(heartbeatTimeout())
+}
+
 func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -447,22 +476,7 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 					// rf.currentTerm might be changed at somepoint, when we became leader, or when we became follower.
 					// Hence, we need to check the current term again to make sure we are in the right term.
 					if args.Term == rf.currentTerm {
-						DPrintf("%d: become leader", rf.me)
-						rf.state = Leader
-
-						rf.nextIndex = make([]int, len(rf.peers))
-						for peerId := range rf.peers {
-							rf.nextIndex[peerId] = len(rf.log)
-
-							// send initial heartbeat to each servers
-							go func() {
-								rf.sendAppendEntries(peerId, args.Term)
-							}()
-						}
-
-						// reset heartbeat
-						rf.heartbeatNotifier.changeTimeout(heartbeatTimeout())
-
+						rf.becomeLeader()
 					}
 					return
 				}
