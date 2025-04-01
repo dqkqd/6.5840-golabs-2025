@@ -359,6 +359,7 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 		// appending successfully, no need to send any append entries
 		if reply.Success {
 			rf.mu.Lock()
+			defer rf.mu.Unlock()
 
 			// find majority replicated entries to commit
 
@@ -383,7 +384,6 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 				}
 			}
 
-			rf.mu.Unlock()
 			return
 		}
 
