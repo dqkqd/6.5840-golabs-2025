@@ -230,21 +230,18 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	// Rules for Servers: lower term, change to follower
-	if rf.currentTerm < args.Term {
-		rf.currentTerm = args.Term
-		rf.votedFor = args.CandidateId
-		rf.state = Follower
-		reply.Term = args.Term
-		reply.VoteGranted = true
-		return
-	}
-
 	// RequestVote rule 1: reply false if request's term < current term
 	if rf.currentTerm > args.Term {
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
 		return
+	}
+
+	// Rules for Servers: lower term, change to follower (but do not reply immediately)
+	if rf.currentTerm < args.Term {
+		rf.changeTerm(args.Term)
+		rf.votedFor = args.CandidateId
+		reply.Term = args.Term
 	}
 
 	// RequestVote rule 2: voted for is null or candidate id
