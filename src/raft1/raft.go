@@ -158,6 +158,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// Rules for Servers: lower term, change to follower
 	if rf.currentTerm < args.Term {
 		rf.changeTerm(args.Term)
+		// TODO should I vote for this guy?
 		rf.votedFor = args.LeaderId
 	}
 
@@ -240,6 +241,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Rules for Servers: lower term, change to follower (but do not reply immediately)
 	if rf.currentTerm < args.Term {
 		rf.changeTerm(args.Term)
+		// TODO: should I vote for this guy inside `changeTerm`
 		rf.votedFor = args.CandidateId
 		reply.Term = args.Term
 	}
@@ -368,6 +370,7 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 
 			// find majority of replicated index
 			for n := replicatedIndex; n > rf.commitIndex; n-- {
+				// TODO: might not need this check?
 				if rf.log[n].Term == rf.currentTerm {
 					replicatedCount := 1 // self should be count
 					for i := range rf.peers {
@@ -387,7 +390,9 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 			return
 		}
 
-		// term has been changed from peer
+		// Rules for Servers: lower term, change to follower
+		// term has been changed from peer,
+		// do not send `AppendEntries` for this term and return immediately
 		if reply.Term > args.Term {
 			rf.mu.Lock()
 			defer rf.mu.Unlock()
@@ -403,15 +408,17 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 }
 
 // change term based on Rule for All Servers,
-// lock must not be hold
+// lock must not be hold by caller
 func (rf *Raft) changeTerm(term int) {
 	if term > rf.currentTerm {
 		rf.currentTerm = term
 		rf.state = Follower
+		// TODO: should I vote for this guy?
 	}
 }
 
-// leader initialization, outer code need to hold lock
+// leader initialization,
+// lock must be hold by caller
 func (rf *Raft) becomeLeader() {
 	DPrintf("%d: become leader", rf.me)
 
@@ -451,6 +458,7 @@ func (rf *Raft) applyCommand() {
 				return
 			}
 
+			// TODO: persist lastApplied
 			// do not send index-0
 			rf.lastApplied++
 
@@ -485,6 +493,7 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 	DPrintf("%d: start election", rf.me)
 
 	rf.state = Candidate
+	// TODO: should we always increment this or only if we are follower?
 	rf.currentTerm += 1 // increment current term
 	rf.votedFor = rf.me // vote for self
 
@@ -520,6 +529,7 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 			case reply := <-votingCh:
 
 				// Rules for Servers: lower term, change to follower
+				// election for this term should be aborted
 				if args.Term < reply.Term {
 					rf.mu.Lock()
 					defer rf.mu.Unlock()
