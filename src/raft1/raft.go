@@ -157,8 +157,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// Rules for Servers: lower term, change to follower
 	if rf.currentTerm < args.Term {
-		rf.currentTerm = args.Term
-		rf.state = Follower
+		rf.changeTerm(args.Term)
 		rf.votedFor = args.LeaderId
 	}
 
@@ -393,6 +392,8 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 
 		// term has been changed from peer
 		if reply.Term > args.Term {
+			rf.mu.Lock()
+			defer rf.mu.Unlock()
 			rf.changeTerm(reply.Term)
 			return
 		}
@@ -407,8 +408,6 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 // change term based on Rule for All Servers,
 // lock must not be hold
 func (rf *Raft) changeTerm(term int) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
 	if term > rf.currentTerm {
 		rf.currentTerm = term
 		rf.state = Follower
@@ -525,6 +524,8 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 
 				// Rules for Servers: lower term, change to follower
 				if args.Term < reply.Term {
+					rf.mu.Lock()
+					defer rf.mu.Unlock()
 					rf.changeTerm(reply.Term)
 					return
 				}
