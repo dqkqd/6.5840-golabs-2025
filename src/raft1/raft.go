@@ -200,6 +200,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// otherwise, we traversed all entries thus the append does nothing.
 	if len(args.Entries[index:]) > 0 {
 		rf.log = append(rf.log, args.Entries[index:]...)
+		// TODO: remove rf.log
 		DPrintf(tAppend, "S%d(%d) <- S%d(%d), entry: %v, log: %v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args.Entries[index:], rf.log)
 	}
 
@@ -397,6 +398,11 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 			rf.nextIndex[peerId] = replicatedIndex + 1
 			rf.matchIndex[peerId] = prevLogIndex
 
+			// TODO: remove
+			DPrintf(tApply,
+				"S%d(%d), find majority indexes, commitIndex=%d, lastApplied=%d, replicated=%d, matchIndex=%v, log=%+v",
+				rf.me, rf.currentTerm, rf.commitIndex, rf.lastApplied, replicatedIndex, rf.matchIndex, rf.log,
+			)
 			// find majority of replicated index
 			for n := replicatedIndex; n > rf.commitIndex; n-- {
 				// TODO: might not need this check?
@@ -457,6 +463,9 @@ func (rf *Raft) becomeLeader() {
 
 	DPrintf(tBecomeLeader, "S%d(%d) become leader", rf.me, rf.currentTerm)
 
+	// put an no-op entry into the log
+	rf.log = append(rf.log, raftLog{Term: rf.currentTerm, LogEntryType: noOpLogEntry})
+
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 	for peerId := range rf.peers {
@@ -493,13 +502,15 @@ func (rf *Raft) applyCommand() {
 			// do not send index-0
 			rf.lastApplied++
 
-			rf.applyCh <- raftapi.ApplyMsg{
-				CommandValid: true,
-				Command:      rf.log[rf.lastApplied].Command,
-				CommandIndex: rf.lastApplied,
-			}
+			if rf.log[rf.lastApplied].LogEntryType == clientLogEntry {
+				rf.applyCh <- raftapi.ApplyMsg{
+					CommandValid: true,
+					Command:      rf.log[rf.lastApplied].Command,
+					CommandIndex: rf.lastApplied,
+				}
 
-			DPrintf(tApply, "S%d(%d), apply to state machine: command: %v, index=%d", rf.me, rf.currentTerm, rf.log[rf.lastApplied], rf.lastApplied)
+				DPrintf(tApply, "S%d(%d), apply to state machine: command: %v, index=%d", rf.me, rf.currentTerm, rf.log[rf.lastApplied], rf.lastApplied)
+			}
 
 		}
 	}()
@@ -641,7 +652,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	// TODO: persist the log to disk
 
 	// append the log
-	entry := raftLog{command, term}
+	entry := raftLog{command, term, clientLogEntry}
 	rf.log = append(rf.log, entry)
 
 	DPrintf(tStart, "S%d(%d), start agreement, entry: %v", rf.me, rf.currentTerm, entry)
@@ -736,7 +747,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// rafg log is 1-indexed, but we start with an entry at term 0
 	rf.log = []raftLog{}
-	rf.log = append(rf.log, raftLog{Term: 0})
+	rf.log = append(rf.log, raftLog{Term: 0, LogEntryType: noOpLogEntry})
 
 	// initialize election and heartbeat notifier
 	rf.electionNotifier = waitNotify(electionTimeout())
