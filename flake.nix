@@ -26,6 +26,15 @@
             gotools
             gofumpt
             golangci-lint
+
+            basedpyright
+            (pkgs.python3.withPackages (python-pkgs: [
+              python-pkgs.typer
+
+              python-pkgs.ruff
+              python-pkgs.black
+              python-pkgs.isort
+            ]))
           ];
         };
       }
