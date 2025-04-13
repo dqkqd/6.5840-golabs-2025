@@ -1,19 +1,27 @@
 import concurrent.futures
 import subprocess
+from enum import Enum
+from typing import Annotated, Literal
 
 import typer
 
 app = typer.Typer()
 
 
+class Command(str, Enum):
+    Test3A = "3A"
+    TestBasicAgree3B = "TestBasicAgree3B"
+
+
 def failed(s: str) -> bool:
     for x in reversed(s.splitlines()):
-        if x.strip() == "FAIL":
+        x = x.strip()
+        if "FAIL" in x or "DATA RACE" in x:
             return True
     return False
 
 
-def run_command(command: str) -> None:
+def run_command_fn(command: str) -> None:
     output = subprocess.run(command.split(" "), capture_output=True)
     stdout = output.stdout.decode()
     if failed(stdout):
@@ -21,13 +29,15 @@ def run_command(command: str) -> None:
 
 
 @app.command()
-def TestBasicAgree3B(loop: int):
-    command = "go test -run TestBasicAgree3B --race"
-    print(f"Running `{command}` with {loop} iterations")
-
+def main(
+    case: Annotated[Command, typer.Option(case_sensitive=False)],
+    iterations: int = 5,
+):
+    command = f"go test -run {case.value} --race"
+    print(f"Running `{command}` with {iterations} iterations")
     with concurrent.futures.ProcessPoolExecutor() as executor:
         futures = concurrent.futures.wait(
-            (executor.submit(run_command, command) for _ in range(loop)),
+            (executor.submit(run_command_fn, command) for _ in range(iterations)),
             return_when=concurrent.futures.FIRST_EXCEPTION,
         )
         for f in futures.done:
