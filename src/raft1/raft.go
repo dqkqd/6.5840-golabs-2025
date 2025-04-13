@@ -145,6 +145,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	// DPrintf(tAppend, "S%d <- S%d, ", a ...any);
+
 	// record the time when we received the AppendEntries
 	rf.latestAppendEntriesAt = time.Now()
 
@@ -158,7 +160,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// Rules for Servers: lower term, change to follower
 	if rf.currentTerm < args.Term {
 		rf.changeTerm(args.Term)
-		// TODO should I vote for this guy?
+		// TODO: should I vote for this guy?
 		rf.votedFor = args.LeaderId
 	}
 
@@ -196,15 +198,16 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// - conflicting, and `rf.log` was truncated
 	// in either case, we need to append the remaining entries.
 	// otherwise, we traversed all entries thus the append does nothing.
-	rf.log = append(rf.log, args.Entries[index:]...)
+	if len(args.Entries[index:]) > 0 {
+		rf.log = append(rf.log, args.Entries[index:]...)
+		DPrintf(tAppend, "S%d(%d) <- S%d(%d), entry: %v, log: %v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args.Entries[index:], rf.log)
+	}
 
 	// AppendEntries rule 5: change commit index
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
 		rf.applyCommand()
 	}
-
-	DPrintf("%d: received append entries, append success, log: %v\n", rf.me, rf.log)
 }
 
 // example RequestVote RPC arguments structure.
@@ -231,8 +234,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
+	DPrintf(tVote, "S%d(%d) <- S%d(%d), receive request vote", rf.me, rf.currentTerm, args.CandidateId, args.Term)
+
 	// RequestVote rule 1: reply false if request's term < current term
 	if rf.currentTerm > args.Term {
+		DPrintf(tVote, "S%d(%d) > S%d(%d), term higher, do not vote", rf.me, rf.currentTerm, args.CandidateId, args.Term)
+
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
 		return
@@ -240,6 +247,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// Rules for Servers: lower term, change to follower (but do not reply immediately)
 	if rf.currentTerm < args.Term {
+		DPrintf(tVote, "S%d(%d) < S%d(%d), lower term, vote", rf.me, rf.currentTerm, args.CandidateId, args.Term)
+
 		rf.changeTerm(args.Term)
 		// TODO: should I vote for this guy inside `changeTerm`
 		rf.votedFor = args.CandidateId
@@ -252,11 +261,27 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		lastLogIndex := len(rf.log) - 1
 		lastLogTerm := rf.log[lastLogIndex].Term
 		if args.LastLogTerm > lastLogTerm || (args.LastLogTerm == lastLogTerm && args.LastLogIndex >= lastLogIndex) {
+			DPrintf(tVote,
+				"S%d(%d) vote for S%d(%d), (term, index): S%d(%d, %d) <= S%d(%d, %d)",
+				rf.me, rf.currentTerm, args.CandidateId, args.Term,
+				rf.me, lastLogTerm, lastLogIndex,
+				args.CandidateId, args.LastLogTerm, args.LastLogIndex,
+			)
+
 			// then we should vote
 			rf.votedFor = args.CandidateId
 			reply.Term = args.Term
 			reply.VoteGranted = true
+		} else {
+			DPrintf(tVote,
+				"S%d(%d) do not vote for S%d(%d), (term, index): S%d(%d, %d) > S%d(%d, %d)",
+				rf.me, rf.currentTerm, args.CandidateId, args.Term,
+				rf.me, lastLogTerm, lastLogIndex,
+				args.CandidateId, args.LastLogTerm, args.LastLogIndex,
+			)
 		}
+	} else {
+		DPrintf(tVote, "S%d(%d) <- S%d(%d), reject request vote, already voted for S%d", rf.me, rf.currentTerm, args.CandidateId, args.Term, rf.votedFor)
 	}
 }
 
@@ -302,6 +327,7 @@ func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
 			go func() {
 				for !rf.killed() {
 					reply := RequestVoteReply{}
+					DPrintf(tVote, "S%d(%d) -> S%d(-), send request vote", rf.me, rf.currentTerm, serverId)
 					ok := peer.Call("Raft.RequestVote", &args, &reply)
 					if ok {
 						votingCh <- reply
@@ -348,7 +374,8 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 			Entries:      rf.log[prevLogIndex+1:],
 			LeaderCommit: rf.commitIndex,
 		}
-		DPrintf("%d: send append entries to %d: %v\n", rf.me, peerId, args)
+
+		DPrintf(tAppend, "S%d(%d) -> S%d(-), send append entries: %+v", rf.me, rf.currentTerm, peerId, args)
 		rf.mu.Unlock()
 
 		reply := AppendEntriesReply{}
@@ -362,6 +389,8 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 		if reply.Success {
 			rf.mu.Lock()
 			defer rf.mu.Unlock()
+
+			DPrintf(tAppend, "S%d(%d) -> S%d(%d), append entries success", rf.me, rf.currentTerm, peerId, reply.Term)
 
 			// find majority replicated entries to commit
 
@@ -396,9 +425,13 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 		if reply.Term > args.Term {
 			rf.mu.Lock()
 			defer rf.mu.Unlock()
+
+			DPrintf(tAppend, "S%d(%d) -> S%d(%d), append failed at term %d, maybe change to follower", rf.me, rf.currentTerm, peerId, reply.Term, args.Term)
 			rf.changeTerm(reply.Term)
 			return
 		}
+
+		DPrintf(tAppend, "S%d(%d) -> S%d(%d), append rejected, %+v", rf.me, rf.currentTerm, peerId, reply.Term, reply)
 
 		// rejection, decrement nextIndex and retry
 		rf.mu.Lock()
@@ -420,11 +453,9 @@ func (rf *Raft) changeTerm(term int) {
 // leader initialization,
 // lock must be hold by caller
 func (rf *Raft) becomeLeader() {
-	DPrintf("%d: become leader", rf.me)
-
 	rf.state = Leader
 
-	DPrintf("%d: send initial append entries", rf.me)
+	DPrintf(tBecomeLeader, "S%d(%d) become leader", rf.me, rf.currentTerm)
 
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
@@ -468,7 +499,7 @@ func (rf *Raft) applyCommand() {
 				CommandIndex: rf.lastApplied,
 			}
 
-			DPrintf("%d: applied to state machine, command: %v, index=%d\n", rf.me, rf.log[rf.lastApplied], rf.lastApplied)
+			DPrintf(tApply, "S%d(%d), apply to state machine: command: %v, index=%d", rf.me, rf.currentTerm, rf.log[rf.lastApplied], rf.lastApplied)
 
 		}
 	}()
@@ -490,12 +521,14 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 		return
 	}
 
-	DPrintf("%d: start election", rf.me)
+	DPrintf(tElection, "S%d(%d), start election", rf.me, rf.currentTerm)
 
 	rf.state = Candidate
 	// TODO: should we always increment this or only if we are follower?
 	rf.currentTerm += 1 // increment current term
 	rf.votedFor = rf.me // vote for self
+
+	DPrintf(tVote, "S%d(%d) vote for self", rf.me, rf.currentTerm)
 
 	timeout := electionTimeout()
 	rf.electionNotifier.changeTimeout(timeout) // reset election timeout
@@ -566,7 +599,7 @@ func (rf *Raft) heartbeat() {
 		return
 	}
 
-	DPrintf("%d: send heartbeat", rf.me)
+	DPrintf(tHeartbeat, "S%d(%d) send heartbeat", rf.me, rf.currentTerm)
 
 	term := rf.currentTerm
 
@@ -611,7 +644,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	entry := raftLog{command, term}
 	rf.log = append(rf.log, entry)
 
-	DPrintf("%d: start agreement for entry: %v\n", rf.me, entry)
+	DPrintf(tStart, "S%d(%d), start agreement, entry: %v", rf.me, rf.currentTerm, entry)
 	for peerId := range rf.peers {
 		go func() {
 			rf.sendAppendEntries(peerId, term)
@@ -681,6 +714,8 @@ func (rf *Raft) ticker() {
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *tester.Persister, applyCh chan raftapi.ApplyMsg,
 ) raftapi.Raft {
+	logInit()
+
 	rf := &Raft{}
 	rf.peers = peers
 	rf.persister = persister
