@@ -465,7 +465,7 @@ func (rf *Raft) becomeLeader() {
 		rf.nextIndex[peerId] = len(rf.log)
 
 		// volatile on leader on election: matchIndex = 0
-		rf.matchIndex[peerId] = len(rf.log)
+		rf.matchIndex[peerId] = 0
 
 		// send initial heartbeat to each servers
 		term := rf.currentTerm
@@ -729,6 +729,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// hasn't voted for any one
 	rf.votedFor = -1
+
+	// commit index and last applied
+	rf.commitIndex = 0
+	rf.lastApplied = 0
 
 	// rafg log is 1-indexed, but we start with an entry at term 0
 	rf.log = []raftLog{}
