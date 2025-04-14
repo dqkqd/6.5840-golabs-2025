@@ -492,12 +492,9 @@ func (rf *Raft) applyCommand() {
 		rf.mu.Lock()
 		defer rf.mu.Unlock()
 
-		for !rf.killed() {
-			if rf.lastApplied == rf.commitIndex {
-				return
-			}
-
+		for !rf.killed() && rf.lastApplied < rf.commitIndex {
 			// TODO: persist lastApplied
+
 			// do not send index-0
 			rf.lastApplied++
 
