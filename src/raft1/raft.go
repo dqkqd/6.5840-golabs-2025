@@ -498,14 +498,20 @@ func (rf *Raft) applyCommand() {
 			// do not send index-0
 			rf.lastApplied++
 
-			if rf.log[rf.lastApplied].LogEntryType == clientLogEntry {
+			log := rf.log[rf.lastApplied]
+
+			switch log.LogEntryType {
+
+			case clientLogEntry:
 				rf.applyCh <- raftapi.ApplyMsg{
 					CommandValid: true,
-					Command:      rf.log[rf.lastApplied].Command,
-					CommandIndex: rf.lastApplied,
+					Command:      log.Command,
+					CommandIndex: log.CommandIndex,
 				}
+				DPrintf(tApply, "S%d(%d), apply, log: %+v", rf.me, rf.currentTerm, log)
 
-				DPrintf(tApply, "S%d(%d), apply to state machine: command: %v, index=%d", rf.me, rf.currentTerm, rf.log[rf.lastApplied], rf.lastApplied)
+			case noOpLogEntry:
+				DPrintf(tApply, "S%d(%d), skip: log: %+v", rf.me, rf.currentTerm, log)
 			}
 
 		}
@@ -654,7 +660,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	index := len(rf.log)
+	index := rf.log[len(rf.log)-1].CommandIndex + 1
 	term := rf.currentTerm
 	isLeader := rf.state == Leader
 
@@ -665,10 +671,10 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	// TODO: persist the log to disk
 
 	// append the log
-	entry := raftLog{command, term, clientLogEntry}
+	entry := raftLog{Command: command, CommandIndex: index, Term: term, LogEntryType: clientLogEntry}
 	rf.log = append(rf.log, entry)
 
-	DPrintf(tStart, "S%d(%d), start agreement, entry: %v", rf.me, rf.currentTerm, entry)
+	DPrintf(tStart, "S%d(%d), start agreement, entry: %+v", rf.me, rf.currentTerm, entry)
 	for peerId := range rf.peers {
 		go func() {
 			rf.sendAppendEntries(peerId, term)
@@ -760,7 +766,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// rafg log is 1-indexed, but we start with an entry at term 0
 	rf.log = []raftLog{}
-	rf.log = append(rf.log, raftLog{Term: 0, LogEntryType: noOpLogEntry})
+	rf.log = append(rf.log, raftLog{CommandIndex: 0, Term: 0, LogEntryType: noOpLogEntry})
 
 	// initialize election and heartbeat notifier
 	rf.electionNotifier = waitNotify(electionTimeout())
