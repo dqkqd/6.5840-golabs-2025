@@ -30,6 +30,7 @@
             basedpyright
             (pkgs.python3.withPackages (python-pkgs: [
               python-pkgs.typer
+              python-pkgs.tqdm
 
               python-pkgs.ruff
               python-pkgs.black

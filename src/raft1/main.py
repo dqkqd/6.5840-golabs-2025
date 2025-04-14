@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Annotated
 
 import typer
+from tqdm import tqdm
 
 app = typer.Typer()
 
@@ -30,7 +31,7 @@ def run_command_fn(command: str) -> None:
 
 
 @app.command()
-def main(
+def parallel(
     case: Annotated[Command, typer.Option(case_sensitive=False)],
     iterations: int = 5,
     verbose: bool = False,
@@ -50,6 +51,27 @@ def main(
             if ex is not None and isinstance(ex, ValueError):
                 print(ex)
                 return
+
+    print("PASS")
+
+
+@app.command()
+def sequence(
+    case: Annotated[Command, typer.Option(case_sensitive=False)],
+    iterations: int = 5,
+    verbose: bool = False,
+):
+    if verbose:
+        os.environ["DEBUG"] = "1"
+
+    command = f"go test -run {case.value} --race"
+    print(f"Running `{command}` with {iterations} iterations")
+    for _ in tqdm(range(iterations)):
+        try:
+            run_command_fn(command=command)
+        except ValueError as ex:
+            print(ex)
+            return
 
     print("PASS")
 
