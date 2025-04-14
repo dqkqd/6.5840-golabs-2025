@@ -328,7 +328,7 @@ func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
 			go func() {
 				for !rf.killed() {
 					reply := RequestVoteReply{}
-					DPrintf(tVote, "S%d(%d) -> S%d(-), send request vote", rf.me, rf.currentTerm, serverId)
+					DPrintf(tVote, "S%d(%d) -> S%d(-), send request vote", rf.me, args.Term, serverId)
 					ok := peer.Call("Raft.RequestVote", &args, &reply)
 					if ok {
 						votingCh <- reply
@@ -437,10 +437,9 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 			return
 		}
 
-		DPrintf(tAppend, "S%d(%d) -> S%d(%d), append rejected, %+v", rf.me, rf.currentTerm, peerId, reply.Term, reply)
-
 		// rejection, decrement nextIndex and retry
 		rf.mu.Lock()
+		DPrintf(tAppend, "S%d(%d) -> S%d(%d), append rejected, %+v", rf.me, rf.currentTerm, peerId, reply.Term, reply)
 		rf.nextIndex[peerId]--
 		rf.mu.Unlock()
 	}
