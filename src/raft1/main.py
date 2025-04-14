@@ -1,7 +1,8 @@
 import concurrent.futures
+import os
 import subprocess
 from enum import Enum
-from typing import Annotated, Literal
+from typing import Annotated
 
 import typer
 
@@ -32,7 +33,11 @@ def run_command_fn(command: str) -> None:
 def main(
     case: Annotated[Command, typer.Option(case_sensitive=False)],
     iterations: int = 5,
+    verbose: bool = False,
 ):
+    if verbose:
+        os.environ["DEBUG"] = "1"
+
     command = f"go test -run {case.value} --race"
     print(f"Running `{command}` with {iterations} iterations")
     with concurrent.futures.ProcessPoolExecutor() as executor:
