@@ -13,6 +13,8 @@ app = typer.Typer()
 class Command(str, Enum):
     Test3A = "3A"
     TestBasicAgree3B = "TestBasicAgree3B"
+    TestBackup3B = "TestBackup3B"
+    Test3B = "3B"
 
 
 def failed(s: str) -> bool:
