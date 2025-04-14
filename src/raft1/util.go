@@ -23,13 +23,14 @@ type (
 )
 
 const (
-	tVote         logTopic = "VOTE"
-	tAppend       logTopic = "APND"
-	tHeartbeat    logTopic = "BEAT"
-	tStart        logTopic = "STRT"
-	tApply        logTopic = "APLY"
-	tBecomeLeader logTopic = "LEAD"
-	tElection     logTopic = "ELCT"
+	tVote          logTopic = "VOTE"
+	tSendAppend    logTopic = "SLOG"
+	tReceiveAppend logTopic = "RLOG"
+	tHeartbeat     logTopic = "BEAT"
+	tStart         logTopic = "STRT"
+	tApply         logTopic = "APLY"
+	tBecomeLeader  logTopic = "LEAD"
+	tElection      logTopic = "ELCT"
 )
 
 const (
@@ -42,6 +43,7 @@ const (
 	tColorMagenta logColor = "\033[35m"
 	tColorCyan    logColor = "\033[36m"
 	tColorWhite   logColor = "\033[37m"
+	tColorTeal    logColor = "\033[38;5;38m"
 )
 
 func logInit() {
@@ -74,8 +76,10 @@ func (t logTopic) color() logColor {
 		switch t {
 		case tVote:
 			return tColorRed
-		case tAppend:
+		case tSendAppend:
 			return tColorBlue
+		case tReceiveAppend:
+			return tColorTeal
 		case tHeartbeat:
 			return tColorMagenta
 		case tStart:
