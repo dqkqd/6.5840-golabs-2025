@@ -146,7 +146,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	// DPrintf(tAppend, "S%d <- S%d, ", a ...any);
+	DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), receive append %+v ", rf.me, rf.currentTerm, args.LeaderId, args.Term, args)
 
 	// record the time when we received the AppendEntries
 	rf.latestAppendEntriesAt = time.Now()
@@ -155,6 +155,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if rf.currentTerm > args.Term {
 		reply.Term = rf.currentTerm
 		reply.Success = false
+		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append reject, lower term", rf.me, rf.currentTerm, args.LeaderId, args.Term)
 		return
 	}
 
@@ -169,6 +170,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// AppendEntries rule 2: reply false
 	// if log doesn't contain entry at prevLogIndex whose term match prevLogTerm
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append reject, doesn't match log index, log=`%+v`", rf.me, rf.currentTerm, args.LeaderId, args.Term, rf.log)
 		reply.Success = false
 		return
 	}
@@ -201,7 +203,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if len(args.Entries[index:]) > 0 {
 		rf.log = append(rf.log, args.Entries[index:]...)
 		// TODO: remove rf.log
-		DPrintf(tAppend, "S%d(%d) <- S%d(%d), entry: %v, log: %v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args.Entries[index:], rf.log)
+		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), entry: %v, log: %v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args.Entries[index:], rf.log)
 	}
 
 	// AppendEntries rule 5: change commit index
@@ -374,7 +376,7 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 			LeaderCommit: rf.commitIndex,
 		}
 
-		DPrintf(tAppend, "S%d(%d) -> S%d(-), send append entries: %+v", rf.me, rf.currentTerm, peerId, args)
+		DPrintf(tSendAppend, "S%d(%d) -> S%d(-), send append entries, nextIndex=%v, args=%+v", rf.me, rf.currentTerm, peerId, rf.nextIndex[peerId], args)
 		rf.mu.Unlock()
 
 		reply := AppendEntriesReply{}
@@ -389,7 +391,7 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 			rf.mu.Lock()
 			defer rf.mu.Unlock()
 
-			DPrintf(tAppend, "S%d(%d) -> S%d(%d), append entries success", rf.me, rf.currentTerm, peerId, reply.Term)
+			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries success", rf.me, rf.currentTerm, peerId, reply.Term)
 
 			// find majority replicated entries to commit
 
@@ -430,14 +432,14 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 			rf.mu.Lock()
 			defer rf.mu.Unlock()
 
-			DPrintf(tAppend, "S%d(%d) -> S%d(%d), append failed at term %d, maybe change to follower", rf.me, rf.currentTerm, peerId, reply.Term, args.Term)
+			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append failed at term %d, maybe change to follower", rf.me, rf.currentTerm, peerId, reply.Term, args.Term)
 			rf.changeTerm(reply.Term)
 			return
 		}
 
 		// rejection, decrement nextIndex and retry
 		rf.mu.Lock()
-		DPrintf(tAppend, "S%d(%d) -> S%d(%d), append rejected, %+v", rf.me, rf.currentTerm, peerId, reply.Term, reply)
+		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append rejected, %+v", rf.me, rf.currentTerm, peerId, reply.Term, reply)
 		rf.nextIndex[peerId]--
 		rf.mu.Unlock()
 	}
