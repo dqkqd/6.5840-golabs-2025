@@ -11,14 +11,20 @@ app = typer.Typer()
 
 
 class Command(str, Enum):
-    Test3A = "3A"
+    TestInitialElection3A = "TestInitialElection3A"
+    TestReElection3A = "TestReElection3A"
+    TestManyElections3A = "TestManyElections3A"
     TestBasicAgree3B = "TestBasicAgree3B"
+    TestBackup3B = "TestBackup3B"
+    Test3A = "3A"
+    Test3B = "3B"
+    Test3C = "3C"
 
 
 def failed(s: str) -> bool:
     for x in reversed(s.splitlines()):
         x = x.strip()
-        if "FAIL" in x or "DATA RACE" in x:
+        if "FAIL" in x or "DATA RACE" in x or "warning:" in x:
             return True
     return False
 
