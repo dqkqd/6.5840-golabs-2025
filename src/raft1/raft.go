@@ -59,6 +59,7 @@ type Raft struct {
 	electionNotifier      waitNotifier          // notify and reset election timeout)
 	heartbeatNotifier     waitNotifier          // notify heartbeat
 	applyCh               chan raftapi.ApplyMsg // apply channel to state machine
+	electionTimeout       time.Duration         // current election timeout
 }
 
 // return currentTerm and whether this server
@@ -160,8 +161,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// Rules for Servers: lower term, change to follower
 	if rf.currentTerm < args.Term {
 		rf.changeTerm(args.Term)
-		// TODO: should I vote for this guy?
-		rf.votedFor = args.LeaderId
+		rf.vote(args.LeaderId)
 	}
 
 	reply.Term = args.Term
@@ -239,7 +239,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// RequestVote rule 1: reply false if request's term < current term
 	if rf.currentTerm > args.Term {
-		DPrintf(tVote, "S%d(%d) > S%d(%d), term higher, do not vote", rf.me, rf.currentTerm, args.CandidateId, args.Term)
+		DPrintf(tVote, "S%d(%d) <- S%d(%d), higher term, do not vote", rf.me, rf.currentTerm, args.CandidateId, args.Term)
 
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
@@ -248,11 +248,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	// Rules for Servers: lower term, change to follower (but do not reply immediately)
 	if rf.currentTerm < args.Term {
-		DPrintf(tVote, "S%d(%d) < S%d(%d), lower term, vote", rf.me, rf.currentTerm, args.CandidateId, args.Term)
-
+		DPrintf(tVote, "S%d(%d) <- S%d(%d), lower term", rf.me, rf.currentTerm, args.CandidateId, args.Term)
 		rf.changeTerm(args.Term)
-		// TODO: should I vote for this guy inside `changeTerm`
-		rf.votedFor = args.CandidateId
+		rf.vote(args.CandidateId)
 		reply.Term = args.Term
 	}
 
@@ -263,26 +261,26 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		lastLogTerm := rf.log[lastLogIndex].Term
 		if args.LastLogTerm > lastLogTerm || (args.LastLogTerm == lastLogTerm && args.LastLogIndex >= lastLogIndex) {
 			DPrintf(tVote,
-				"S%d(%d) vote for S%d(%d), (term, index): S%d(%d, %d) <= S%d(%d, %d)",
+				"S%d(%d) <- S%d(%d), accept (term, index): S%d(%d, %d) <= S%d(%d, %d)",
 				rf.me, rf.currentTerm, args.CandidateId, args.Term,
 				rf.me, lastLogTerm, lastLogIndex,
 				args.CandidateId, args.LastLogTerm, args.LastLogIndex,
 			)
 
 			// then we should vote
-			rf.votedFor = args.CandidateId
+			rf.vote(args.CandidateId)
 			reply.Term = args.Term
 			reply.VoteGranted = true
 		} else {
 			DPrintf(tVote,
-				"S%d(%d) do not vote for S%d(%d), (term, index): S%d(%d, %d) > S%d(%d, %d)",
+				"S%d(%d) <- S%d(%d), reject (term, index): S%d(%d, %d) > S%d(%d, %d)",
 				rf.me, rf.currentTerm, args.CandidateId, args.Term,
 				rf.me, lastLogTerm, lastLogIndex,
 				args.CandidateId, args.LastLogTerm, args.LastLogIndex,
 			)
 		}
 	} else {
-		DPrintf(tVote, "S%d(%d) <- S%d(%d), reject request vote, already voted for S%d", rf.me, rf.currentTerm, args.CandidateId, args.Term, rf.votedFor)
+		DPrintf(tVote, "S%d(%d) <- S%d(%d), reject, already voted for S%d", rf.me, rf.currentTerm, args.CandidateId, args.Term, rf.votedFor)
 	}
 }
 
@@ -451,7 +449,6 @@ func (rf *Raft) changeTerm(term int) {
 	if term > rf.currentTerm {
 		rf.currentTerm = term
 		rf.state = Follower
-		// TODO: should I vote for this guy?
 	}
 }
 
@@ -515,6 +512,28 @@ func (rf *Raft) applyCommand() {
 	}()
 }
 
+// grant vote for someone, caller must hold lock
+func (rf *Raft) vote(peer int) {
+	// TODO: is this logic correct?
+	// do not vote twice
+	if rf.votedFor == peer {
+		return
+	}
+
+	rf.votedFor = peer
+
+	if rf.me == peer {
+		DPrintf(tVote, "S%d(%d) vote for self", rf.me, rf.currentTerm)
+	} else {
+		DPrintf(tVote, "S%d(%d) vote for %d", rf.me, rf.currentTerm, peer)
+	}
+
+	rf.electionTimeout = electionTimeout()
+
+	// reset election timeout
+	rf.electionNotifier.changeTimeout(rf.electionTimeout)
+}
+
 func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -536,12 +555,7 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 	rf.state = Candidate
 	// TODO: should we always increment this or only if we are follower?
 	rf.currentTerm += 1 // increment current term
-	rf.votedFor = rf.me // vote for self
-
-	DPrintf(tVote, "S%d(%d) vote for self", rf.me, rf.currentTerm)
-
-	timeout := electionTimeout()
-	rf.electionNotifier.changeTimeout(timeout) // reset election timeout
+	rf.vote(rf.me)
 
 	lastLogIndex := len(rf.log) - 1
 	args := RequestVoteArgs{
@@ -551,15 +565,15 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 		LastLogTerm:  rf.log[lastLogIndex].Term,
 	}
 
+	// make sure we are not waiting all days
+	electionTimeoutCh := time.After(rf.electionTimeout)
+
 	// voting starts in the background thread
 	go func() {
 		votingCh := rf.sendRequestVotes(args)
 
 		// we have voted for ourselves already, so this should become 1
 		totalVotes := 1
-
-		// make sure we are not waiting all days
-		electionTimeoutCh := time.After(timeout)
 
 		// waiting from vote channels and timeout
 		for !rf.killed() {
