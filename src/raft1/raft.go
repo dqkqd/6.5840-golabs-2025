@@ -461,9 +461,6 @@ func (rf *Raft) becomeLeader() {
 
 	DPrintf(tBecomeLeader, "S%d(%d) become leader", rf.me, rf.currentTerm)
 
-	// put an no-op entry into the log
-	rf.log = append(rf.log, raftLog{Term: rf.currentTerm, LogEntryType: noOpLogEntry})
-
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 	for peerId := range rf.peers {
@@ -473,8 +470,12 @@ func (rf *Raft) becomeLeader() {
 
 		// volatile on leader on election: matchIndex = 0
 		rf.matchIndex[peerId] = 0
+	}
 
-		// send initial heartbeat to each servers
+	// put an no-op entry into the log
+	rf.log = append(rf.log, raftLog{CommandIndex: rf.log[len(rf.log)-1].CommandIndex, Term: rf.currentTerm, LogEntryType: noOpLogEntry})
+	// send initial heartbeat to each servers
+	for peerId := range rf.peers {
 		term := rf.currentTerm
 		go func() {
 			rf.sendAppendEntries(peerId, term)
