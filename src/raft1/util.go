@@ -3,16 +3,19 @@ package raft
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 )
 
 // Debugging
-const (
-	Debug          = true
-	enableLogColor = true
+var (
+	Debug      bool
+	debugStart time.Time
 )
 
-var debugStart time.Time
+const (
+	enableLogColor = true
+)
 
 type (
 	logTopic string
@@ -44,6 +47,7 @@ const (
 func logInit() {
 	if debugStart.IsZero() {
 		debugStart = time.Now()
+		Debug = os.Getenv("DEBUG") == "1"
 		log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
 	}
 }
