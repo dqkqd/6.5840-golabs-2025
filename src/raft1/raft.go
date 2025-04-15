@@ -10,6 +10,7 @@ import (
 	//	"bytes"
 
 	"math/rand"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -139,12 +140,22 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	Term    int  // currentTerm, for leader to update itself
 	Success bool // true if follower contained entry matching prevLogIndex and prevLogTerm
+	// optimization
+	XTerm  int // Term in the conflicting entry, -1 means empty
+	XIndex int // index of the first entry with that term, -1 means empty
+	XLen   int // follower's log length, -1 means empty
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	// Your code here (3A, 3B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
+	// reply's default value
+	reply.XTerm = -1
+	reply.XIndex = -1
+	reply.XLen = -1
+	reply.Success = false
 
 	DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), receive append %+v ", rf.me, rf.currentTerm, args.LeaderId, args.Term, args)
 
@@ -154,7 +165,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// AppendEntries rule 1: reply false for smaller term from leader
 	if rf.currentTerm > args.Term {
 		reply.Term = rf.currentTerm
-		reply.Success = false
 		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append reject, lower term", rf.me, rf.currentTerm, args.LeaderId, args.Term)
 		return
 	}
@@ -169,9 +179,21 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// AppendEntries rule 2: reply false
 	// if log doesn't contain entry at prevLogIndex whose term match prevLogTerm
-	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
-		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append reject, doesn't match log index, log=`%+v`", rf.me, rf.currentTerm, args.LeaderId, args.Term, rf.log)
-		reply.Success = false
+	if len(rf.log) <= args.PrevLogIndex {
+		// follower's log is too short
+		reply.XLen = len(rf.log)
+		DPrintf(tReceiveAppend,
+			"S%d(%d) <- S%d(%d), append reject, follower's log too is short, len(log)=%d",
+			rf.me, rf.currentTerm, args.LeaderId, args.Term, len(rf.log),
+		)
+		return
+	}
+	// conflict term
+	xTerm := rf.log[args.PrevLogIndex].Term
+	if xTerm != args.PrevLogTerm {
+		reply.XTerm = xTerm
+		reply.XIndex = rf.findFirstIndexWithTerm(reply.XTerm)
+		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append reject, conflict term, reply=`%+v`", rf.me, rf.currentTerm, args.LeaderId, args.Term, reply)
 		return
 	}
 
@@ -437,12 +459,37 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 			return
 		}
 
-		// rejection, decrement nextIndex and retry
+		// rejection, change nextIndex and retry
 		rf.mu.Lock()
-		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append rejected, %+v", rf.me, rf.currentTerm, peerId, reply.Term, reply)
-		rf.nextIndex[peerId]--
+
+		if reply.XTerm != -1 && reply.XIndex != -1 {
+			// conflicting term
+
+			// find the last index of XTerm (the index before the first XTerm + 1)
+			lastXTermIndex := rf.findFirstIndexWithTerm(reply.XTerm+1) - 1
+
+			if lastXTermIndex >= 0 && rf.log[lastXTermIndex].Term == reply.XTerm {
+				// leader has XTerm
+				rf.nextIndex[peerId] = lastXTermIndex + 1
+			} else {
+				// leader doesn't have XTerm
+				rf.nextIndex[peerId] = reply.XIndex
+			}
+		} else {
+			// follower's log is too short
+			rf.nextIndex[peerId] = reply.XLen
+		}
+
+		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append rejected, nextIndex=%d, reply=%+v", rf.me, rf.currentTerm, peerId, reply.Term, rf.nextIndex[peerId], reply)
+
 		rf.mu.Unlock()
 	}
+}
+
+func (rf *Raft) findFirstIndexWithTerm(term int) int {
+	return sort.Search(len(rf.log), func(i int) bool {
+		return rf.log[i].Term >= term
+	})
 }
 
 // change term based on Rule for All Servers,
