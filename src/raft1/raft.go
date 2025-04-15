@@ -751,14 +751,14 @@ func (rf *Raft) killed() bool {
 }
 
 func electionTimeout() time.Duration {
-	// election timeout: between 200ms and 300ms
-	ms := 200 + (rand.Int63() % 100)
+	// election timeout: between 500ms and 800ms
+	ms := 500 + (rand.Int63() % 300)
 	return time.Duration(ms) * time.Millisecond
 }
 
 func heartbeatTimeout() time.Duration {
-	// heartbeat timeout: 150ms
-	return 150 * time.Millisecond
+	// heartbeat timeout: 100ms
+	return 100 * time.Millisecond
 }
 
 // loop shouldn't execute continuouslly without waiting
