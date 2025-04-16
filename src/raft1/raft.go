@@ -418,7 +418,6 @@ func (rf *Raft) sendAppendEntries(peerId int) {
 		}
 
 		prevLogIndex := rf.nextIndex[peerId] - 1
-		replicatedIndex := len(rf.log) - 1
 		args := AppendEntriesArgs{
 			Term:         rf.currentTerm,
 			LeaderId:     rf.me,
@@ -445,12 +444,12 @@ func (rf *Raft) sendAppendEntries(peerId int) {
 
 			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries success", rf.me, rf.currentTerm, peerId, reply.Term)
 
-			// update nextIndex and matchIndex correctly
+			// update nextIndex and matchIndex
 			rf.nextIndex[peerId] = len(rf.log)
-			rf.matchIndex[peerId] = replicatedIndex
+			rf.matchIndex[peerId] = args.PrevLogIndex + len(args.Entries)
 
 			// find majority replicated entries to commit
-			for n := replicatedIndex; n > rf.commitIndex; n-- {
+			for n := len(rf.log) - 1; n > rf.commitIndex; n-- {
 				// TODO: might not need this check?
 				if rf.log[n].Term == rf.currentTerm {
 					replicatedCount := 1 // self should be count
