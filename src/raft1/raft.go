@@ -547,15 +547,8 @@ func (rf *Raft) becomeLeader() {
 	// put an no-op entry into the log
 	rf.log = append(rf.log, raftLog{CommandIndex: rf.log[len(rf.log)-1].CommandIndex, Term: rf.currentTerm, LogEntryType: noOpLogEntry})
 	rf.persist()
-	// send initial heartbeat to each servers
-	for peerId := range rf.peers {
-		go func() {
-			rf.sendAppendEntries(peerId)
-		}()
-	}
-
-	// reset heartbeat
-	rf.heartbeatNotifier.changeTimeout(heartbeatTimeout())
+	// reset heartbeat and send heartbeat immediately
+	rf.heartbeatNotifier.changeTimeout(heartbeatTimeout(), wakeupNow)
 }
 
 // apply log to state machine
@@ -610,10 +603,10 @@ func (rf *Raft) vote(peer int) {
 	rf.electionTimeout = electionTimeout()
 
 	// reset election timeout
-	rf.electionNotifier.changeTimeout(rf.electionTimeout)
+	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
 }
 
-func (rf *Raft) elect(currentElectionTimeout time.Duration) {
+func (rf *Raft) elect() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
@@ -625,7 +618,7 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 	}
 
 	// If we are follower, we do not want to start an election if we receive heartbeat periodically
-	if rf.state == Follower && time.Since(rf.latestAppendEntriesAt) < currentElectionTimeout {
+	if rf.state == Follower && time.Since(rf.latestAppendEntriesAt) < rf.electionTimeout {
 		return
 	}
 
@@ -633,7 +626,7 @@ func (rf *Raft) elect(currentElectionTimeout time.Duration) {
 
 	rf.state = Candidate
 	// TODO: should we always increment this or only if we are follower?
-	rf.currentTerm += 1 // increment current term
+	rf.changeTerm(rf.currentTerm + 1)
 	rf.vote(rf.me)
 
 	lastLogIndex := len(rf.log) - 1
@@ -793,10 +786,10 @@ func (rf *Raft) ticker() {
 	for !rf.killed() {
 		select {
 
-		case currentElectionTimeout := <-rf.electionNotifier.waitedFor:
-			rf.elect(currentElectionTimeout)
+		case <-rf.electionNotifier.wakeup:
+			rf.elect()
 
-		case <-rf.heartbeatNotifier.waitedFor:
+		case <-rf.heartbeatNotifier.wakeup:
 			rf.heartbeat()
 		}
 	}

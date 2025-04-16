@@ -2,17 +2,29 @@ package raft
 
 import "time"
 
+type wakeupKind int
+
+const (
+	wakeupNow wakeupKind = iota
+	wakeupLater
+)
+
 type waitNotifier struct {
-	waitedFor       <-chan time.Duration // notify outer that we have finished waiting a cycle
+	wakeup          chan bool            // notify outer that we have finished waiting a cycle
 	timeoutModifier chan<- time.Duration // allow outer to modify waiting timer
 }
 
-func (w *waitNotifier) changeTimeout(timeout time.Duration) {
+// change current timeout cycle.
+// wake indicate that we should wakeup immediately or we should wait until the next cycle
+func (w *waitNotifier) changeTimeout(timeout time.Duration, wake wakeupKind) {
+	if wake == wakeupNow {
+		w.wakeup <- true
+	}
 	w.timeoutModifier <- timeout
 }
 
 func waitNotify(defaultTimeout time.Duration) waitNotifier {
-	waitedFor := make(chan time.Duration)
+	wakeup := make(chan bool)
 	timerModifier := make(chan time.Duration)
 
 	go func() {
@@ -24,7 +36,7 @@ func waitNotify(defaultTimeout time.Duration) waitNotifier {
 
 			// wait and loop
 			case <-waitingCh:
-				waitedFor <- timeout
+				wakeup <- true
 				waitingCh = time.After(timeout)
 
 			// reset if receiving a new timer
@@ -35,5 +47,5 @@ func waitNotify(defaultTimeout time.Duration) waitNotifier {
 		}
 	}()
 
-	return waitNotifier{waitedFor, timerModifier}
+	return waitNotifier{wakeup, timerModifier}
 }
