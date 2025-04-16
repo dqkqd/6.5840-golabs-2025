@@ -396,7 +396,7 @@ func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
 }
 
 // looping and send append entries to a peer until agreement is reached
-func (rf *Raft) sendAppendEntries(peerId int, term int) {
+func (rf *Raft) sendAppendEntries(peerId int) {
 	// do not send to self
 	if rf.me == peerId {
 		return
@@ -420,7 +420,7 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 		prevLogIndex := rf.nextIndex[peerId] - 1
 		replicatedIndex := len(rf.log) - 1
 		args := AppendEntriesArgs{
-			Term:         term,
+			Term:         rf.currentTerm,
 			LeaderId:     rf.me,
 			PrevLogIndex: prevLogIndex,
 			PrevLogTerm:  rf.log[prevLogIndex].Term,
@@ -549,9 +549,8 @@ func (rf *Raft) becomeLeader() {
 	rf.persist()
 	// send initial heartbeat to each servers
 	for peerId := range rf.peers {
-		term := rf.currentTerm
 		go func() {
-			rf.sendAppendEntries(peerId, term)
+			rf.sendAppendEntries(peerId)
 		}()
 	}
 
@@ -705,13 +704,11 @@ func (rf *Raft) heartbeat() {
 
 	DPrintf(tHeartbeat, "S%d(%d) send heartbeat", rf.me, rf.currentTerm)
 
-	term := rf.currentTerm
-
 	// send heartbeat, because leader initialized all `nextIndex` to be the last entry
 	// in the log, so all `entries` should be empty.
 	for peerId := range rf.peers {
 		go func() {
-			rf.sendAppendEntries(peerId, term)
+			rf.sendAppendEntries(peerId)
 		}()
 	}
 }
@@ -750,7 +747,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	DPrintf(tStart, "S%d(%d), start agreement, entry: %+v", rf.me, rf.currentTerm, entry)
 	for peerId := range rf.peers {
 		go func() {
-			rf.sendAppendEntries(peerId, term)
+			rf.sendAppendEntries(peerId)
 		}()
 	}
 
