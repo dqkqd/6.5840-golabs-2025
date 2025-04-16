@@ -445,17 +445,11 @@ func (rf *Raft) sendAppendEntries(peerId int, term int) {
 
 			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries success", rf.me, rf.currentTerm, peerId, reply.Term)
 
+			// update nextIndex and matchIndex correctly
+			rf.nextIndex[peerId] = len(rf.log)
+			rf.matchIndex[peerId] = replicatedIndex
+
 			// find majority replicated entries to commit
-
-			rf.nextIndex[peerId] = replicatedIndex + 1
-			rf.matchIndex[peerId] = prevLogIndex
-
-			// TODO: remove
-			DPrintf(tApply,
-				"S%d(%d), find majority indexes, commitIndex=%d, lastApplied=%d, replicated=%d, matchIndex=%v, log=%+v",
-				rf.me, rf.currentTerm, rf.commitIndex, rf.lastApplied, replicatedIndex, rf.matchIndex, rf.log,
-			)
-			// find majority of replicated index
 			for n := replicatedIndex; n > rf.commitIndex; n-- {
 				// TODO: might not need this check?
 				if rf.log[n].Term == rf.currentTerm {
