@@ -395,8 +395,20 @@ func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
 	return votingCh
 }
 
+// create appendEntriesArgs at certain index
+func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
+	return AppendEntriesArgs{
+		Term:         rf.currentTerm,
+		LeaderId:     rf.me,
+		PrevLogIndex: at - 1,
+		PrevLogTerm:  rf.log[at-1].Term,
+		Entries:      rf.log[at:],
+		LeaderCommit: rf.commitIndex,
+	}
+}
+
 // looping and send append entries to a peer until agreement is reached
-func (rf *Raft) sendAppendEntries(peerId int) {
+func (rf *Raft) sendAppendEntries(peerId int, args AppendEntriesArgs) {
 	// do not send to self
 	if rf.me == peerId {
 		return
@@ -408,26 +420,13 @@ func (rf *Raft) sendAppendEntries(peerId int) {
 
 	for !rf.killed() {
 
-		// construct entries for peer's args
-		rf.mu.Lock()
-
 		// do not send append tries if we are not leader
+		rf.mu.Lock()
 		if rf.state != Leader {
 			rf.mu.Unlock()
 			return
 		}
-
-		prevLogIndex := rf.nextIndex[peerId] - 1
-		args := AppendEntriesArgs{
-			Term:         rf.currentTerm,
-			LeaderId:     rf.me,
-			PrevLogIndex: prevLogIndex,
-			PrevLogTerm:  rf.log[prevLogIndex].Term,
-			Entries:      rf.log[prevLogIndex+1:],
-			LeaderCommit: rf.commitIndex,
-		}
-
-		DPrintf(tSendAppend, "S%d(%d) -> S%d(-), send append entries, nextIndex=%v, args=%+v", rf.me, rf.currentTerm, peerId, rf.nextIndex[peerId], args)
+		DPrintf(tSendAppend, "S%d(%d) -> S%d(-), send append entries, args=%+v", rf.me, rf.currentTerm, peerId, args)
 		rf.mu.Unlock()
 
 		reply := AppendEntriesReply{}
@@ -445,8 +444,8 @@ func (rf *Raft) sendAppendEntries(peerId int) {
 			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries success", rf.me, rf.currentTerm, peerId, reply.Term)
 
 			// update nextIndex and matchIndex
-			rf.nextIndex[peerId] = len(rf.log)
 			rf.matchIndex[peerId] = args.PrevLogIndex + len(args.Entries)
+			rf.nextIndex[peerId] = rf.matchIndex[peerId] + 1
 
 			// find majority replicated entries to commit
 			for n := len(rf.log) - 1; n > rf.commitIndex; n-- {
@@ -504,6 +503,8 @@ func (rf *Raft) sendAppendEntries(peerId int) {
 		}
 
 		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append rejected, nextIndex=%d, reply=%+v", rf.me, rf.currentTerm, peerId, reply.Term, rf.nextIndex[peerId], reply)
+
+		args = rf.appendEntriesArgs(rf.nextIndex[peerId])
 
 		rf.mu.Unlock()
 	}
@@ -696,11 +697,12 @@ func (rf *Raft) heartbeat() {
 
 	DPrintf(tHeartbeat, "S%d(%d) send heartbeat", rf.me, rf.currentTerm)
 
-	// send heartbeat, because leader initialized all `nextIndex` to be the last entry
-	// in the log, so all `entries` should be empty.
+	// send heartbeat
 	for peerId := range rf.peers {
+		// send empty append entries
+		args := rf.appendEntriesArgs(len(rf.log))
 		go func() {
-			rf.sendAppendEntries(peerId)
+			rf.sendAppendEntries(peerId, args)
 		}()
 	}
 }
@@ -738,8 +740,9 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 
 	DPrintf(tStart, "S%d(%d), start agreement, entry: %+v", rf.me, rf.currentTerm, entry)
 	for peerId := range rf.peers {
+		args := rf.appendEntriesArgs(rf.nextIndex[peerId])
 		go func() {
-			rf.sendAppendEntries(peerId)
+			rf.sendAppendEntries(peerId, args)
 		}()
 	}
 
