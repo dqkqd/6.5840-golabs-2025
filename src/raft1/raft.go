@@ -9,6 +9,8 @@ package raft
 import (
 	//	"bytes"
 
+	"bytes"
+	"log"
 	"math/rand"
 	"sort"
 	"sync"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	//	"6.5840/labgob"
+	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
 	tester "6.5840/tester1"
@@ -91,6 +94,15 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// raftstate := w.Bytes()
 	// rf.persister.Save(raftstate, nil)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	if e.Encode(rf.currentTerm) != nil ||
+		e.Encode(rf.votedFor) != nil ||
+		e.Encode(rf.log) != nil {
+		log.Fatalf("Cannot persist log")
+	}
+	raftstate := w.Bytes()
+	rf.persister.Save(raftstate, nil)
 }
 
 // restore previously persisted state.
@@ -111,6 +123,21 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+
+	var currentTerm int
+	var votedFor int
+	var rlog []raftLog
+	if d.Decode(&currentTerm) != nil ||
+		d.Decode(&votedFor) != nil ||
+		d.Decode(&rlog) != nil {
+		log.Fatal("Cannot read persist")
+	} else {
+		rf.currentTerm = currentTerm
+		rf.votedFor = votedFor
+		rf.log = rlog
+	}
 }
 
 // how many bytes in Raft's persisted log?
@@ -227,6 +254,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// TODO: remove rf.log
 		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), entry: %v, log: %v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args.Entries[index:], rf.log)
 	}
+
+	// persist the log
+	rf.persist()
 
 	// AppendEntries rule 5: change commit index
 	if args.LeaderCommit > rf.commitIndex {
@@ -498,6 +528,7 @@ func (rf *Raft) changeTerm(term int) {
 	if term > rf.currentTerm {
 		rf.currentTerm = term
 		rf.state = Follower
+		rf.persist()
 	}
 }
 
@@ -521,6 +552,7 @@ func (rf *Raft) becomeLeader() {
 
 	// put an no-op entry into the log
 	rf.log = append(rf.log, raftLog{CommandIndex: rf.log[len(rf.log)-1].CommandIndex, Term: rf.currentTerm, LogEntryType: noOpLogEntry})
+	rf.persist()
 	// send initial heartbeat to each servers
 	for peerId := range rf.peers {
 		term := rf.currentTerm
@@ -574,6 +606,7 @@ func (rf *Raft) vote(peer int) {
 	}
 
 	rf.votedFor = peer
+	rf.persist()
 
 	if rf.me == peer {
 		DPrintf(tVote, "S%d(%d) vote for self", rf.me, rf.currentTerm)
@@ -715,11 +748,10 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		return index, term, isLeader
 	}
 
-	// TODO: persist the log to disk
-
 	// append the log
 	entry := raftLog{Command: command, CommandIndex: index, Term: term, LogEntryType: clientLogEntry}
 	rf.log = append(rf.log, entry)
+	rf.persist()
 
 	DPrintf(tStart, "S%d(%d), start agreement, entry: %+v", rf.me, rf.currentTerm, entry)
 	for peerId := range rf.peers {
