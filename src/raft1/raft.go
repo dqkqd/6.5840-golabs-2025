@@ -524,6 +524,7 @@ func (rf *Raft) changeTerm(term int) {
 	if term > rf.currentTerm {
 		rf.currentTerm = term
 		rf.state = Follower
+		rf.votedFor = -1
 		rf.persist()
 	}
 }
