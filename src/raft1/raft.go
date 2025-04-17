@@ -58,12 +58,11 @@ type Raft struct {
 	matchIndex []int // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 
 	// optional fields
-	state                 serverState           // state of the server: leader, follower, or candidate
-	latestAppendEntriesAt time.Time             // the latest time we received the entries, since we only save this to compute the monotonical timediff, it is fine
-	electionNotifier      waitNotifier          // notify and reset election timeout)
-	heartbeatNotifier     waitNotifier          // notify heartbeat
-	applyCh               chan raftapi.ApplyMsg // apply channel to state machine
-	electionTimeout       time.Duration         // current election timeout
+	state             serverState           // state of the server: leader, follower, or candidate
+	electionNotifier  waitNotifier          // notify and reset election timeout)
+	heartbeatNotifier waitNotifier          // notify heartbeat
+	applyCh           chan raftapi.ApplyMsg // apply channel to state machine
+	electionTimeout   time.Duration         // current election timeout
 }
 
 // return currentTerm and whether this server
@@ -186,9 +185,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), receive append %+v ", rf.me, rf.currentTerm, args.LeaderId, args.Term, args)
 
-	// record the time when we received the AppendEntries
-	rf.latestAppendEntriesAt = time.Now()
-
 	// AppendEntries rule 1: reply false for smaller term from leader
 	if rf.currentTerm > args.Term {
 		reply.Term = rf.currentTerm
@@ -201,6 +197,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.changeTerm(args.Term)
 		rf.vote(args.LeaderId)
 	}
+
+	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
 
 	reply.Term = args.Term
 
@@ -600,8 +598,6 @@ func (rf *Raft) vote(peer int) {
 		DPrintf(tVote, "S%d(%d) vote for %d", rf.me, rf.currentTerm, peer)
 	}
 
-	rf.electionTimeout = electionTimeout()
-
 	// reset election timeout
 	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
 }
@@ -617,17 +613,15 @@ func (rf *Raft) elect() {
 		return
 	}
 
-	// If we are follower, we do not want to start an election if we receive heartbeat periodically
-	if rf.state == Follower && time.Since(rf.latestAppendEntriesAt) < rf.electionTimeout {
-		return
-	}
-
 	DPrintf(tElection, "S%d(%d), start election", rf.me, rf.currentTerm)
 
-	rf.state = Candidate
-	// TODO: should we always increment this or only if we are follower?
-	rf.changeTerm(rf.currentTerm + 1)
-	rf.vote(rf.me)
+	// If we are follower, we do not want to start an election if we receive heartbeat periodically
+	if rf.state == Follower {
+		rf.state = Candidate
+		rf.changeTerm(rf.currentTerm + 1)
+		rf.electionTimeout = electionTimeout()
+		rf.vote(rf.me)
+	}
 
 	lastLogIndex := len(rf.log) - 1
 	args := RequestVoteArgs{
@@ -834,7 +828,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.log = append(rf.log, raftLog{CommandIndex: 0, Term: 0, LogEntryType: noOpLogEntry})
 
 	// initialize election and heartbeat notifier
-	rf.electionNotifier = waitNotify(electionTimeout())
+	rf.electionTimeout = electionTimeout()
+	rf.electionNotifier = waitNotify(rf.electionTimeout)
 	rf.heartbeatNotifier = waitNotify(heartbeatTimeout())
 
 	// initialize from state persisted before a crash
