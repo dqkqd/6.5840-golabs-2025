@@ -191,6 +191,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append reject, lower term", rf.me, rf.currentTerm, args.LeaderId, args.Term)
 		return
 	}
+	// Rule for servers, candidate, convert to follower if receive append entries from leader
+	if rf.state == Candidate {
+		rf.state = Follower
+	}
 
 	// Rules for Servers: lower term, change to follower
 	if rf.currentTerm < args.Term {
@@ -527,6 +531,11 @@ func (rf *Raft) changeTerm(term int) {
 // leader initialization,
 // lock must be hold by caller
 func (rf *Raft) becomeLeader() {
+	// only candidate can become leader
+	if rf.state != Candidate {
+		return
+	}
+
 	rf.state = Leader
 
 	DPrintf(tBecomeLeader, "S%d(%d) become leader", rf.me, rf.currentTerm)
@@ -590,6 +599,7 @@ func (rf *Raft) vote(peer int) {
 	}
 
 	rf.votedFor = peer
+	rf.state = Follower
 	rf.persist()
 
 	if rf.me == peer {
@@ -613,15 +623,12 @@ func (rf *Raft) elect() {
 		return
 	}
 
-	DPrintf(tElection, "S%d(%d), start election", rf.me, rf.currentTerm)
+	DPrintf(tElection, "S%d(%d), start election, state=%+v", rf.me, rf.currentTerm, rf.state)
 
-	// If we are follower, we do not want to start an election if we receive heartbeat periodically
-	if rf.state == Follower {
-		rf.state = Candidate
-		rf.changeTerm(rf.currentTerm + 1)
-		rf.electionTimeout = electionTimeout()
-		rf.vote(rf.me)
-	}
+	rf.changeTerm(rf.currentTerm + 1)
+	rf.electionTimeout = electionTimeout()
+	rf.vote(rf.me)
+	rf.state = Candidate
 
 	lastLogIndex := len(rf.log) - 1
 	args := RequestVoteArgs{
