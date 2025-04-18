@@ -19,4 +19,14 @@ mr-clean:
 @lab-3a:
     go test -v -run 3A --race
 
+[working-directory('src/raft1')]
+@lab-3b:
+    go test -v -run 3B --race
+
+[working-directory('src/raft1')]
+@lab-3c:
+    go test -v -run 3C --race
+
+@lab-3: lab-3a lab-3b lab-3c
+
 @test-all: mr kvsrv-all lab-3a
