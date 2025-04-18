@@ -371,6 +371,12 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	DPrintf(tSendAppend, "S%d(%d) -> S%d(-), send append entries", rf.me, args.Term, server)
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
+
 // create appendEntriesArgs at certain index
 func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
 	entries := make([]raftLog, len(rf.log[at:]))
