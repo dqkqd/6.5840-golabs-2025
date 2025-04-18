@@ -379,16 +379,10 @@ func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
 			args := args
 
 			go func() {
-				for !rf.killed() {
-					reply := RequestVoteReply{}
-					DPrintf(tVote, "S%d(%d) -> S%d(-), send request vote", rf.me, args.Term, serverId)
-					ok := peer.Call("Raft.RequestVote", &args, &reply)
-					if ok {
-						votingCh <- reply
-						return
-					}
-					sleep()
-				}
+				reply := RequestVoteReply{}
+				DPrintf(tVote, "S%d(%d) -> S%d(-), send request vote", rf.me, args.Term, serverId)
+				peer.Call("Raft.RequestVote", &args, &reply)
+				votingCh <- reply
 			}()
 		}
 	}
@@ -431,11 +425,7 @@ func (rf *Raft) sendAppendEntries(peerId int, args AppendEntriesArgs) {
 		rf.mu.Unlock()
 
 		reply := AppendEntriesReply{}
-		ok := peer.Call("Raft.AppendEntries", &args, &reply)
-		if !ok {
-			sleep()
-			continue
-		}
+		peer.Call("Raft.AppendEntries", &args, &reply)
 
 		// appending successfully, no need to send any append entries
 		if reply.Success {
@@ -778,11 +768,6 @@ func electionTimeout() time.Duration {
 func heartbeatTimeout() time.Duration {
 	// heartbeat timeout: 100ms
 	return 100 * time.Millisecond
-}
-
-// loop shouldn't execute continuouslly without waiting
-func sleep() {
-	time.Sleep(10 * time.Millisecond)
 }
 
 func (rf *Raft) ticker() {
