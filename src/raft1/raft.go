@@ -374,12 +374,15 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 // create appendEntriesArgs at certain index
 func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
+	entries := make([]raftLog, len(rf.log[at:]))
+	copy(entries, rf.log[at:])
+
 	return AppendEntriesArgs{
 		Term:         rf.currentTerm,
 		LeaderId:     rf.me,
 		PrevLogIndex: at - 1,
 		PrevLogTerm:  rf.log[at-1].Term,
-		Entries:      rf.log[at:],
+		Entries:      entries,
 		LeaderCommit: rf.commitIndex,
 	}
 }
