@@ -574,14 +574,14 @@ func (rf *Raft) vote(peer int) {
 	}
 
 	rf.votedFor = peer
-	rf.state = Follower
-	rf.persist()
 
-	if rf.me == peer {
+	if rf.votedFor == rf.me {
 		DPrintf(tVote, "S%d(%d) vote for self", rf.me, rf.currentTerm)
 	} else {
+		rf.state = Follower
 		DPrintf(tVote, "S%d(%d) vote for %d", rf.me, rf.currentTerm, peer)
 	}
+	rf.persist()
 
 	// reset election timeout
 	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
