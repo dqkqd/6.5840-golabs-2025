@@ -199,7 +199,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// Rules for Servers: lower term, change to follower
 	if rf.currentTerm < args.Term {
 		rf.changeTerm(args.Term)
-		rf.vote(args.LeaderId)
 	}
 
 	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
