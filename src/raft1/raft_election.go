@@ -28,67 +28,69 @@ func (rf *Raft) elect() {
 		LastLogTerm:  rf.log[lastLogIndex].Term,
 	}
 
+	// voters send vote through this channel, it's need to be buffered.
+	voteCh := make(chan RequestVoteReply, len(rf.peers)-1)
+
+	// send votes in parallel in the background
+	go rf.sendVotes(voteCh, args)
+
+	// collect votes in the background
+	go rf.collectVotes(voteCh, args.Term)
+}
+
+func (rf *Raft) sendVotes(voteCh chan<- RequestVoteReply, args RequestVoteArgs) {
+	for server := range rf.peers {
+		if server != rf.me {
+			go func() {
+				reply := RequestVoteReply{}
+				rf.sendRequestVote(server, &args, &reply)
+				voteCh <- reply
+			}()
+		}
+	}
+}
+
+func (rf *Raft) collectVotes(voteCh <-chan RequestVoteReply, electionTerm int) {
 	// make sure we are not waiting all days
 	electionTimeoutCh := time.After(rf.electionTimeout)
 
-	// voters send vote through this channel, it's need to be buffered.
-	votingCh := make(chan RequestVoteReply, len(rf.peers)-1)
-
-	// we have voted for ourselves already, so this should become 1
+	// we have voted for ourselves already, so this should be 1
 	totalVotes := 1
 
-	// voting start in the background
-	go func() {
-		for server := range rf.peers {
-			if server != rf.me {
-				args := args
+	// waiting from vote channels and timeout
+	for !rf.killed() {
+		select {
 
-				go func() {
-					reply := RequestVoteReply{}
-					rf.sendRequestVote(server, &args, &reply)
-					votingCh <- reply
-				}()
-			}
-		}
-	}()
+		// timeout
+		case <-electionTimeoutCh:
+			return
 
-	// collect votes in the background
-	go func() {
-		// waiting from vote channels and timeout
-		for !rf.killed() {
-			select {
+		case reply := <-voteCh:
 
-			// timeout
-			case <-electionTimeoutCh:
+			// Rules for Servers: lower term, change to follower
+			// election for this term should be aborted
+			if electionTerm < reply.Term {
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
+				rf.changeTerm(reply.Term)
 				return
+			}
 
-			case reply := <-votingCh:
+			if reply.VoteGranted {
+				totalVotes += 1
+			}
 
-				// Rules for Servers: lower term, change to follower
-				// election for this term should be aborted
-				if args.Term < reply.Term {
-					rf.mu.Lock()
-					defer rf.mu.Unlock()
-					rf.changeTerm(reply.Term)
-					return
+			// if votes received from majority of servers: become leader
+			if totalVotes*2 > len(rf.peers) {
+				rf.mu.Lock()
+				defer rf.mu.Unlock()
+				// rf.currentTerm might be changed at somepoint, when we became leader, or when we became follower.
+				// Hence, we need to check the current term again to make sure we are in the right term.
+				if electionTerm == rf.currentTerm {
+					rf.becomeLeader()
 				}
-
-				if reply.VoteGranted {
-					totalVotes += 1
-				}
-
-				// if votes received from majority of servers: become leader
-				if totalVotes*2 > len(rf.peers) {
-					rf.mu.Lock()
-					defer rf.mu.Unlock()
-					// rf.currentTerm might be changed at somepoint, when we became leader, or when we became follower.
-					// Hence, we need to check the current term again to make sure we are in the right term.
-					if args.Term == rf.currentTerm {
-						rf.becomeLeader()
-					}
-					return
-				}
+				return
 			}
 		}
-	}()
+	}
 }
