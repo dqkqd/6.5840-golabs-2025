@@ -366,28 +366,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // capitalized all field names in structs passed over RPC, and
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
-func (rf *Raft) sendRequestVotes(args RequestVoteArgs) <-chan RequestVoteReply {
-	// send RequestVoteRPCs to all other servers in parallel
-	// TODO: need a way to stop looping, do we need a done ch?
-
-	// result is collected in `votingCh`
-	// buffered channel is used to avoid blocking
-	votingCh := make(chan RequestVoteReply, len(rf.peers)-1)
-
-	for serverId, peer := range rf.peers {
-		if serverId != rf.me {
-			args := args
-
-			go func() {
-				reply := RequestVoteReply{}
-				DPrintf(tVote, "S%d(%d) -> S%d(-), send request vote", rf.me, args.Term, serverId)
-				peer.Call("Raft.RequestVote", &args, &reply)
-				votingCh <- reply
-			}()
-		}
-	}
-
-	return votingCh
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	DPrintf(tVote, "S%d(%d) -> S%d(-), send request vote", rf.me, args.Term, server)
+	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	return ok
 }
 
 // create appendEntriesArgs at certain index
@@ -631,13 +613,29 @@ func (rf *Raft) elect() {
 	// make sure we are not waiting all days
 	electionTimeoutCh := time.After(rf.electionTimeout)
 
-	// voting starts in the background thread
+	// voters send vote through this channel, it's need to be buffered.
+	votingCh := make(chan RequestVoteReply, len(rf.peers)-1)
+
+	// we have voted for ourselves already, so this should become 1
+	totalVotes := 1
+
+	// voting start in the background
 	go func() {
-		votingCh := rf.sendRequestVotes(args)
+		for server := range rf.peers {
+			if server != rf.me {
+				args := args
 
-		// we have voted for ourselves already, so this should become 1
-		totalVotes := 1
+				go func() {
+					reply := RequestVoteReply{}
+					rf.sendRequestVote(server, &args, &reply)
+					votingCh <- reply
+				}()
+			}
+		}
+	}()
 
+	// collect votes in the background
+	go func() {
 		// waiting from vote channels and timeout
 		for !rf.killed() {
 			select {
