@@ -46,11 +46,12 @@ func (rf *Raft) replicate(server int, nextIndex int) {
 func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (nextIndex int, finished bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), handle append entries", rf.me, args.Term, server, reply.Term)
 
 	// Rules for Servers: lower term, change to follower
 	// term has been changed from peer, change to follower and return immediately
 	if reply.Term > rf.currentTerm {
-		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, might change to follower", rf.me, rf.currentTerm, server, reply.Term)
+		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append failed, change to follower", rf.me, args.Term, server, reply.Term)
 		rf.changeTerm(reply.Term)
 		return
 	}
@@ -58,7 +59,7 @@ func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, re
 	if reply.Success {
 		nextIndex, finished = rf.handleSuccessAppendEntries(server, args, reply)
 	} else {
-		nextIndex = rf.handleFailedAppendEntries(server, reply)
+		nextIndex = rf.handleFailedAppendEntries(server, args, reply)
 	}
 
 	return
@@ -87,7 +88,7 @@ func (rf *Raft) canReplicate(server int) bool {
 // return true if all the log are replicated
 // otherwise, return false
 func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (nextIndex int, finished bool) {
-	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries success", rf.me, rf.currentTerm, server, reply.Term)
+	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries succeeded", rf.me, args.Term, server, reply.Term)
 
 	// update nextIndex and matchIndex
 	rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
@@ -113,14 +114,23 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 	}
 
 	nextIndex = rf.nextIndex[server]
-	return nextIndex, nextIndex == len(rf.log)
+	finished = nextIndex == len(rf.log)
+
+	if !finished {
+		DPrintf(tSendAppend,
+			"S%d(%d) -> S%d(%d), len(log)=%d > nextIndex=%d, need another append entries round",
+			rf.me, args.Term, server, reply.Term, len(rf.log), rf.nextIndex[server],
+		)
+	}
+
+	return nextIndex, finished
 }
 
 // handle entries that was replied with failure, leader must change `nextIndex` and retry
-func (rf *Raft) handleFailedAppendEntries(server int, reply *AppendEntriesReply) (nextIndex int) {
+func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (nextIndex int) {
 	// rejection, change nextIndex and retry
 
-	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, reply=%+v", rf.me, rf.currentTerm, server, reply.Term, reply)
+	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, args=%+v, reply=%+v", rf.me, rf.currentTerm, server, reply.Term, args, reply)
 
 	if reply.XTerm != -1 && reply.XIndex != -1 {
 		// conflicting term

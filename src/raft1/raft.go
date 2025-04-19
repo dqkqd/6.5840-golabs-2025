@@ -212,7 +212,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// follower's log is too short
 		reply.XLen = len(rf.log)
 		DPrintf(tReceiveAppend,
-			"S%d(%d) <- S%d(%d), append reject, follower's log too is short, len(log)=%d",
+			"S%d(%d) <- S%d(%d), append reject, follower's log is too short, len(log)=%d",
 			rf.me, rf.currentTerm, args.LeaderId, args.Term, len(rf.log),
 		)
 		return
@@ -254,8 +254,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if len(args.Entries[index:]) > 0 {
 		rf.log = append(rf.log, args.Entries[index:]...)
 		// TODO: remove rf.log
-		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), entry: %v, log: %v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args.Entries[index:], rf.log)
 	}
+
+	DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append success, entry: %+v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args.Entries[index:])
 
 	// persist the log
 	rf.persist()
