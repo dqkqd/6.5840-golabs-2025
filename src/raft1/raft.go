@@ -264,7 +264,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// AppendEntries rule 5: change commit index
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
-		rf.applyCommand()
+		go rf.applyCommand()
 	}
 }
 
@@ -444,34 +444,32 @@ func (rf *Raft) becomeLeader() {
 
 // apply log to state machine
 func (rf *Raft) applyCommand() {
-	go func() {
-		rf.mu.Lock()
-		defer rf.mu.Unlock()
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-		for !rf.killed() && rf.lastApplied < rf.commitIndex {
-			// TODO: persist lastApplied
+	for !rf.killed() && rf.lastApplied < rf.commitIndex {
+		// TODO: persist lastApplied
 
-			// do not send index-0
-			rf.lastApplied++
+		// do not send index-0
+		rf.lastApplied++
 
-			log := rf.log[rf.lastApplied]
+		log := rf.log[rf.lastApplied]
 
-			switch log.LogEntryType {
+		switch log.LogEntryType {
 
-			case clientLogEntry:
-				rf.applyCh <- raftapi.ApplyMsg{
-					CommandValid: true,
-					Command:      log.Command,
-					CommandIndex: log.CommandIndex,
-				}
-				DPrintf(tApply, "S%d(%d), apply, log: %+v", rf.me, rf.currentTerm, log)
-
-			case noOpLogEntry:
-				DPrintf(tApply, "S%d(%d), skip: log: %+v", rf.me, rf.currentTerm, log)
+		case clientLogEntry:
+			rf.applyCh <- raftapi.ApplyMsg{
+				CommandValid: true,
+				Command:      log.Command,
+				CommandIndex: log.CommandIndex,
 			}
+			DPrintf(tApply, "S%d(%d), apply, log: %+v", rf.me, rf.currentTerm, log)
 
+		case noOpLogEntry:
+			DPrintf(tApply, "S%d(%d), skip, log: %+v", rf.me, rf.currentTerm, log)
 		}
-	}()
+
+	}
 }
 
 // grant vote for someone, caller must hold lock

@@ -108,7 +108,7 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 			// majority of servers have been replicated
 			if replicatedCount*2 > len(rf.peers) {
 				rf.commitIndex = n
-				rf.applyCommand()
+				go rf.applyCommand()
 				break
 			}
 		}
