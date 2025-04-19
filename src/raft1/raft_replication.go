@@ -49,12 +49,18 @@ func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, re
 	defer rf.mu.Unlock()
 	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), handle append entries", rf.me, args.Term, server, reply.Term)
 
-	// Rules for Servers: lower term, change to follower
-	// term has been changed from peer, change to follower and return immediately
-	if reply.Term > rf.currentTerm {
-		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append failed, change to follower", rf.me, args.Term, server, reply.Term)
-		rf.changeTerm(reply.Term)
-		return
+	if reply.Term != rf.currentTerm {
+		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append failed, term changed, currentTerm=%d", rf.me, args.Term, server, reply.Term, rf.currentTerm)
+
+		// Rules for Servers: lower term, change to follower
+		// term has been changed from peer, change to follower and return immediately
+		if reply.Term > rf.currentTerm {
+			rf.changeTerm(reply.Term)
+		}
+		// otherwise, the reply is from previous append entries round
+		// it might be staled and incorrect. Should retry with different nextIndex
+
+		return rf.state != Leader
 	}
 
 	if reply.Success {
