@@ -63,6 +63,7 @@ type Raft struct {
 	heartbeatNotifier waitNotifier          // notify heartbeat
 	applyCh           chan raftapi.ApplyMsg // apply channel to state machine
 	electionTimeout   time.Duration         // current election timeout
+	replicating       []bool                // boolean array indicate whether an server is replicating
 }
 
 // return currentTerm and whether this server
@@ -423,6 +424,7 @@ func (rf *Raft) becomeLeader() {
 
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
+	rf.replicating = make([]bool, len(rf.peers))
 	for peerId := range rf.peers {
 
 		// volatile on leader on election: nextIndex = last log index + 1

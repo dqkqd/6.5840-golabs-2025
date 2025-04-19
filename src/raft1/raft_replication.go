@@ -2,8 +2,7 @@ package raft
 
 // looping and send append entries to a peer until agreement is reached
 func (rf *Raft) replicate(server int, nextIndex int) {
-	// do not send to self
-	if rf.me == server {
+	if !rf.canReplicate(server) {
 		return
 	}
 
@@ -31,9 +30,15 @@ func (rf *Raft) replicate(server int, nextIndex int) {
 		argsNextIndex, finished := rf.handleAppendEntriesReply(server, &args, &reply)
 		nextIndex = argsNextIndex
 		if finished {
+			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), finished append entries", rf.me, args.Term, server, args.Term)
 			break
 		}
 	}
+
+	// mark `replicating` as false so other process can run
+	rf.mu.Lock()
+	rf.replicating[server] = false
+	rf.mu.Unlock()
 }
 
 // handle returned append entries
@@ -57,6 +62,25 @@ func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, re
 	}
 
 	return
+}
+
+func (rf *Raft) canReplicate(server int) bool {
+	if rf.me == server {
+		DPrintf(tSendAppend, "S%d(-), do not send append entries to self", rf.me)
+		return false
+	}
+
+	// check whether another process is replicating
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.replicating[server] {
+		DPrintf(tSendAppend, "S%d(-) -> S%d(-), already replicating", rf.me, server)
+		return false
+	}
+	// make this as true, so other process cannot run
+	rf.replicating[server] = true
+	DPrintf(tSendAppend, "S%d(-) -> S%d(-), start replicating", rf.me, server)
+	return true
 }
 
 // handle entries that was successfully sent
