@@ -425,7 +425,6 @@ func (rf *Raft) becomeLeader() {
 
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
-	rf.replicating = make([]bool, len(rf.peers))
 	for peerId := range rf.peers {
 
 		// volatile on leader on election: nextIndex = last log index + 1
@@ -639,6 +638,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.electionTimeout = electionTimeout()
 	rf.electionNotifier = waitNotify(rf.electionTimeout)
 	rf.heartbeatNotifier = waitNotify(heartbeatTimeout())
+
+	// allow to replicate to other servers
+	rf.replicating = make([]bool, len(rf.peers))
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
