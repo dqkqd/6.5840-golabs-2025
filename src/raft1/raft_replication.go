@@ -149,7 +149,7 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 			// leader doesn't have XTerm
 			rf.nextIndex[server] = reply.XIndex
 		}
-	} else {
+	} else if reply.XLen != -1 {
 		// follower's log is too short
 		rf.nextIndex[server] = reply.XLen
 	}
