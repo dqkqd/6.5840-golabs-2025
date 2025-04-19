@@ -14,11 +14,12 @@ func (rf *Raft) replicate(server int) {
 		rf.mu.Lock()
 		state := rf.state
 		args := rf.appendEntriesArgs(rf.nextIndex[server])
+		rf.mu.Unlock()
+
 		if state != Leader {
-			rf.mu.Unlock()
+			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), do not send append entries, not a leader", rf.me, args.Term, server, args.Term)
 			break
 		}
-		rf.mu.Unlock()
 
 		reply := AppendEntriesReply{}
 		ok := rf.sendAppendEntries(server, &args, &reply)
