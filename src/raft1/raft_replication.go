@@ -3,7 +3,7 @@ package raft
 import "time"
 
 // looping and send append entries to a peer until agreement is reached
-func (rf *Raft) replicate(server int, nextIndex int) {
+func (rf *Raft) replicate(server int) {
 	if !rf.canReplicate(server) {
 		return
 	}
@@ -13,11 +13,11 @@ func (rf *Raft) replicate(server int, nextIndex int) {
 		// do not send append tries if we are not leader
 		rf.mu.Lock()
 		state := rf.state
+		args := rf.appendEntriesArgs(rf.nextIndex[server])
 		if state != Leader {
 			rf.mu.Unlock()
 			break
 		}
-		args := rf.appendEntriesArgs(nextIndex)
 		rf.mu.Unlock()
 
 		reply := AppendEntriesReply{}
@@ -28,8 +28,7 @@ func (rf *Raft) replicate(server int, nextIndex int) {
 			continue
 		}
 
-		argsNextIndex, finished := rf.handleAppendEntriesReply(server, &args, &reply)
-		nextIndex = argsNextIndex
+		finished := rf.handleAppendEntriesReply(server, &args, &reply)
 		if finished {
 			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), finished append entries", rf.me, args.Term, server, args.Term)
 			break
@@ -44,7 +43,7 @@ func (rf *Raft) replicate(server int, nextIndex int) {
 
 // handle returned append entries
 // return the nextIndex to retry, or finished to indicate we shouldn't send out more any rpc
-func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (nextIndex int, finished bool) {
+func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (finished bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), handle append entries", rf.me, args.Term, server, reply.Term)
@@ -58,12 +57,10 @@ func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, re
 	}
 
 	if reply.Success {
-		nextIndex, finished = rf.handleSuccessAppendEntries(server, args, reply)
+		return rf.handleSuccessAppendEntries(server, args, reply)
 	} else {
-		nextIndex = rf.handleFailedAppendEntries(server, args, reply)
+		return rf.handleFailedAppendEntries(server, args, reply)
 	}
-
-	return
 }
 
 func (rf *Raft) canReplicate(server int) bool {
@@ -88,7 +85,7 @@ func (rf *Raft) canReplicate(server int) bool {
 // handle entries that was successfully sent
 // return true if all the log are replicated
 // otherwise, return false
-func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (nextIndex int, finished bool) {
+func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (finished bool) {
 	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries succeeded", rf.me, args.Term, server, reply.Term)
 
 	// update nextIndex and matchIndex
@@ -114,8 +111,7 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 		}
 	}
 
-	nextIndex = rf.nextIndex[server]
-	finished = nextIndex == len(rf.log)
+	finished = rf.nextIndex[server] == len(rf.log)
 
 	if !finished {
 		DPrintf(tSendAppend,
@@ -124,11 +120,11 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 		)
 	}
 
-	return nextIndex, finished
+	return finished
 }
 
 // handle entries that was replied with failure, leader must change `nextIndex` and retry
-func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (nextIndex int) {
+func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (finished bool) {
 	// rejection, change nextIndex and retry
 
 	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, args=%+v, reply=%+v", rf.me, rf.currentTerm, server, reply.Term, args, reply)
@@ -153,5 +149,6 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 
 	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, change nextIndex=%d", rf.me, rf.currentTerm, server, reply.Term, rf.nextIndex[server])
 
-	return rf.nextIndex[server]
+	// always return false indicate that we have not finished
+	return false
 }
