@@ -28,7 +28,7 @@
             golangci-lint
 
             basedpyright
-            (pkgs.python3.withPackages (python-pkgs: [
+            (pkgs.python313.withPackages (python-pkgs: [
               python-pkgs.typer
               python-pkgs.tqdm
 
