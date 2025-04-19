@@ -22,37 +22,41 @@ func (rf *Raft) replicate(server int, nextIndex int) {
 		reply := AppendEntriesReply{}
 		rf.sendAppendEntries(server, &args, &reply)
 
-		// Rules for Servers: lower term, change to follower
-		// term has been changed from peer,
-		// do not send `AppendEntries` for this term and return immediately
-		if reply.Term > args.Term {
-			rf.mu.Lock()
-			defer rf.mu.Unlock()
-
-			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, might change to follower", rf.me, rf.currentTerm, server, reply.Term)
-			rf.changeTerm(reply.Term)
+		argsNextIndex, finished := rf.handleAppendEntriesReply(server, &args, &reply)
+		nextIndex = argsNextIndex
+		if finished {
 			break
 		}
-
-		if reply.Success {
-			argsNextIndex, finished := rf.handleSuccessAppendEntries(server, &args, &reply)
-			if finished {
-				break
-			}
-			nextIndex = argsNextIndex
-		} else {
-			nextIndex = rf.handleFailedAppendEntries(server, &reply)
-		}
 	}
+}
+
+// handle returned append entries
+// return the nextIndex to retry, or finished to indicate we shouldn't send out more any rpc
+func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (nextIndex int, finished bool) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// Rules for Servers: lower term, change to follower
+	// term has been changed from peer, change to follower and return immediately
+	if reply.Term > rf.currentTerm {
+		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, might change to follower", rf.me, rf.currentTerm, server, reply.Term)
+		rf.changeTerm(reply.Term)
+		return
+	}
+
+	if reply.Success {
+		nextIndex, finished = rf.handleSuccessAppendEntries(server, args, reply)
+	} else {
+		nextIndex = rf.handleFailedAppendEntries(server, reply)
+	}
+
+	return
 }
 
 // handle entries that was successfully sent
 // return true if all the log are replicated
 // otherwise, return false
 func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (nextIndex int, finished bool) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
 	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries success", rf.me, rf.currentTerm, server, reply.Term)
 
 	// update nextIndex and matchIndex
@@ -85,8 +89,6 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 // handle entries that was replied with failure, leader must change `nextIndex` and retry
 func (rf *Raft) handleFailedAppendEntries(server int, reply *AppendEntriesReply) (nextIndex int) {
 	// rejection, change nextIndex and retry
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
 
 	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, reply=%+v", rf.me, rf.currentTerm, server, reply.Term, reply)
 
