@@ -572,6 +572,11 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+// do not burn cpu cycle
+func sleepTimeout() time.Duration {
+	return 10 * time.Millisecond
+}
+
 func electionTimeout() time.Duration {
 	// election timeout: between 500ms and 800ms
 	ms := 500 + (rand.Int63() % 300)

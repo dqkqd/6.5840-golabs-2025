@@ -1,5 +1,7 @@
 package raft
 
+import "time"
+
 // looping and send append entries to a peer until agreement is reached
 func (rf *Raft) replicate(server int, nextIndex int) {
 	if !rf.canReplicate(server) {
@@ -20,11 +22,10 @@ func (rf *Raft) replicate(server int, nextIndex int) {
 
 		reply := AppendEntriesReply{}
 		ok := rf.sendAppendEntries(server, &args, &reply)
-		// cannot send to other server, append entries will be sent in the next heartbeat interval
 		if !ok {
-			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append, unreachable destination, abort", rf.me, args.Term, server, reply.Term)
-			break
-
+			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), cannot send append entries, retry", rf.me, args.Term, server, args.Term)
+			time.Sleep(sleepTimeout())
+			continue
 		}
 
 		argsNextIndex, finished := rf.handleAppendEntriesReply(server, &args, &reply)

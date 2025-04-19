@@ -47,9 +47,23 @@ func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args Reque
 	for server := range rf.peers {
 		if server != rf.me {
 			go func() {
-				reply := RequestVoteReply{}
-				rf.sendRequestVote(server, &args, &reply)
-				voteCh <- requestVoteReplyWithServerId{server: server, reply: reply}
+				// make sure we are not waiting all days
+				electionTimeoutCh := time.After(rf.electionTimeout)
+
+				for !rf.killed() {
+					reply := RequestVoteReply{}
+					ok := rf.sendRequestVote(server, &args, &reply)
+					if ok {
+						voteCh <- requestVoteReplyWithServerId{server: server, reply: reply}
+						return
+					}
+					select {
+					case <-time.After(sleepTimeout()):
+						continue
+					case <-electionTimeoutCh:
+						return
+					}
+				}
 			}()
 		}
 	}
