@@ -507,10 +507,7 @@ func (rf *Raft) heartbeat() {
 	// send heartbeat
 	for peerId := range rf.peers {
 		// send empty append entries
-		args := rf.appendEntriesArgs(len(rf.log))
-		go func() {
-			rf.replicate(peerId, args)
-		}()
+		go rf.replicate(peerId, len(rf.log))
 	}
 }
 
@@ -547,10 +544,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 
 	DPrintf(tStart, "S%d(%d), start agreement, entry: %+v", rf.me, rf.currentTerm, entry)
 	for peerId := range rf.peers {
-		args := rf.appendEntriesArgs(rf.nextIndex[peerId])
-		go func() {
-			rf.replicate(peerId, args)
-		}()
+		go rf.replicate(peerId, rf.nextIndex[peerId])
 	}
 
 	return index, term, isLeader
