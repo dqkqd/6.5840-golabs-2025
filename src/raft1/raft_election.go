@@ -2,6 +2,11 @@ package raft
 
 import "time"
 
+type requestVoteReplyWithServerId struct {
+	server int
+	reply  RequestVoteReply
+}
+
 func (rf *Raft) elect() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
@@ -29,7 +34,7 @@ func (rf *Raft) elect() {
 	}
 
 	// voters send vote through this channel, it's need to be buffered.
-	voteCh := make(chan RequestVoteReply, len(rf.peers)-1)
+	voteCh := make(chan requestVoteReplyWithServerId, len(rf.peers)-1)
 
 	// send votes in parallel in the background
 	go rf.sendVotes(voteCh, args)
@@ -38,19 +43,19 @@ func (rf *Raft) elect() {
 	go rf.collectVotes(voteCh, args.Term)
 }
 
-func (rf *Raft) sendVotes(voteCh chan<- RequestVoteReply, args RequestVoteArgs) {
+func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args RequestVoteArgs) {
 	for server := range rf.peers {
 		if server != rf.me {
 			go func() {
 				reply := RequestVoteReply{}
 				rf.sendRequestVote(server, &args, &reply)
-				voteCh <- reply
+				voteCh <- requestVoteReplyWithServerId{server: server, reply: reply}
 			}()
 		}
 	}
 }
 
-func (rf *Raft) collectVotes(voteCh <-chan RequestVoteReply, electionTerm int) {
+func (rf *Raft) collectVotes(voteCh <-chan requestVoteReplyWithServerId, electionTerm int) {
 	// make sure we are not waiting all days
 	electionTimeoutCh := time.After(rf.electionTimeout)
 
@@ -65,19 +70,26 @@ func (rf *Raft) collectVotes(voteCh <-chan RequestVoteReply, electionTerm int) {
 		case <-electionTimeoutCh:
 			return
 
-		case reply := <-voteCh:
+		case r := <-voteCh:
+			reply := r.reply
+			DPrintf(tVote, "S%d(%d) -> S%d(%d), received vote", rf.me, electionTerm, r.server, reply.Term)
 
 			// Rules for Servers: lower term, change to follower
 			// election for this term should be aborted
 			if electionTerm < reply.Term {
 				rf.mu.Lock()
 				defer rf.mu.Unlock()
+
+				DPrintf(tVote, "S%d(%d) -> S%d(%d), higher term", rf.me, electionTerm, r.server, reply.Term)
 				rf.changeTerm(reply.Term)
 				return
 			}
 
 			if reply.VoteGranted {
 				totalVotes += 1
+				DPrintf(tVote, "S%d(%d) -> S%d(%d), granted, totalVotes=%d", rf.me, electionTerm, r.server, reply.Term, totalVotes)
+			} else {
+				DPrintf(tVote, "S%d(%d) -> S%d(%d), no granted, totalVotes=%d", rf.me, electionTerm, r.server, reply.Term, totalVotes)
 			}
 
 			// if votes received from majority of servers: become leader
