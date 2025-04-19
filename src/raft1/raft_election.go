@@ -51,12 +51,29 @@ func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args Reque
 				electionTimeoutCh := time.After(rf.electionTimeout)
 
 				for !rf.killed() {
+					rf.mu.Lock()
+					state := rf.state
+					term := rf.currentTerm
+					rf.mu.Unlock()
+
+					if state != Candidate {
+						DPrintf(tVote, "S%d(%d) -> S%d(%d), do not send request vote, not a candidate", rf.me, args.Term, server, args.Term)
+						return
+					}
+
+					if term != args.Term {
+						DPrintf(tVote, "S%d(%d) -> S%d(%d), do not send request vote, term changed=%d", rf.me, args.Term, server, args.Term, term)
+						return
+					}
+
 					reply := RequestVoteReply{}
 					ok := rf.sendRequestVote(server, &args, &reply)
 					if ok {
 						voteCh <- requestVoteReplyWithServerId{server: server, reply: reply}
 						return
 					}
+					DPrintf(tVote, "S%d(%d) -> S%d(%d), cannot send request votes, retry", rf.me, args.Term, server, args.Term)
+
 					select {
 					case <-time.After(sleepTimeout()):
 						continue
