@@ -20,7 +20,13 @@ func (rf *Raft) replicate(server int, nextIndex int) {
 		rf.mu.Unlock()
 
 		reply := AppendEntriesReply{}
-		rf.sendAppendEntries(server, &args, &reply)
+		ok := rf.sendAppendEntries(server, &args, &reply)
+		// cannot send to other server, append entries will be sent in the next heartbeat interval
+		if !ok {
+			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append, unreachable destination, abort", rf.me, args.Term, server, reply.Term)
+			break
+
+		}
 
 		argsNextIndex, finished := rf.handleAppendEntriesReply(server, &args, &reply)
 		nextIndex = argsNextIndex
