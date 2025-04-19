@@ -473,12 +473,6 @@ func (rf *Raft) applyCommand() {
 
 // grant vote for someone, caller must hold lock
 func (rf *Raft) vote(peer int) {
-	// TODO: is this logic correct?
-	// do not vote twice
-	if rf.votedFor == peer {
-		return
-	}
-
 	rf.votedFor = peer
 
 	if rf.votedFor == rf.me {
