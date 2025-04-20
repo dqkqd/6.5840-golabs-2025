@@ -62,6 +62,12 @@ def run_command_fn(command: str) -> None:
         raise CommandError(output_file.read_text())
 
 
+def run_command_sequence(command: str) -> None:
+    output = subprocess.run(command.split(" "))
+    if output.returncode != 0:
+        raise CommandError(f"failed {command}")
+
+
 @app.command()
 def parallel(
     case: Annotated[Command, typer.Option(case_sensitive=False)],
@@ -96,11 +102,7 @@ def sequence(
     command = f"go test -run {case.value} --race"
     print(f"Running `{command}` with {iterations} iterations")
     for _ in tqdm(range(iterations)):
-        try:
-            run_command_fn(command=command)
-        except CommandError as ex:
-            print(ex)
-            return
+        run_command_sequence(command=command)
 
     print("PASS")
 
