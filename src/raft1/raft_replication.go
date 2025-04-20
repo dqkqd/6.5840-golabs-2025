@@ -13,6 +13,8 @@ func (rf *Raft) replicate(server int) {
 		// do not send append tries if we are not leader
 		rf.mu.Lock()
 		state := rf.state
+		// make sure nextIndex does not exceed log length
+		rf.nextIndex[server] = min(rf.nextIndex[server], len(rf.log))
 		args := rf.appendEntriesArgs(rf.nextIndex[server])
 		rf.mu.Unlock()
 
