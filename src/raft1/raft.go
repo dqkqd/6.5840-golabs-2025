@@ -576,8 +576,8 @@ func sleepTimeout() time.Duration {
 }
 
 func electionTimeout() time.Duration {
-	// election timeout: between 500ms and 800ms
-	ms := 500 + (rand.Int63() % 300)
+	// election timeout: between 800ms and 1300ms
+	ms := 800 + (rand.Int63() % 500)
 	return time.Duration(ms) * time.Millisecond
 }
 
