@@ -23,7 +23,7 @@ func (rf *Raft) elect() {
 	rf.changeTerm(rf.currentTerm + 1)
 	rf.electionTimeout = electionTimeout()
 	rf.vote(rf.me)
-	rf.state = Candidate
+	rf.changeState(Candidate)
 
 	lastLogIndex := len(rf.log) - 1
 	args := RequestVoteArgs{

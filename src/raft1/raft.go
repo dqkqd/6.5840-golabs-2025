@@ -212,16 +212,16 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		DPrintf(tReceiveAppend, "S%d(%d,%v) <- S%d(%d), append reject, lower term, currentTerm=%d", rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, rf.currentTerm)
 		return
 	}
-	// Rule for servers, candidate, convert to follower if receive append entries from leader
-	if rf.state == Candidate {
-		rf.state = Follower
-	}
 
 	// Rules for Servers: lower term, change to follower
 	if rf.currentTerm < args.Term {
 		rf.changeTerm(args.Term)
 	}
 
+	// Rule for Server: candidate, convert to follower if receive append entries from leader
+	if rf.state == Candidate {
+		rf.changeState(Follower)
+	}
 	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
 
 	reply.Term = args.Term
@@ -419,8 +419,8 @@ func (rf *Raft) changeTerm(term int) {
 	if term > rf.currentTerm {
 		DPrintf(tStatus, "S%d(%d,%v), change term to %d", rf.me, rf.currentTerm, rf.state, term)
 		rf.currentTerm = term
-		rf.state = Follower
 		rf.votedFor = -1
+		rf.changeState(Follower)
 		rf.persist()
 	}
 }
@@ -434,9 +434,8 @@ func (rf *Raft) becomeLeader() {
 		return
 	}
 
-	rf.state = Leader
-
 	DPrintf(tBecomeLeader, "S%d(%d,%v) become leader", rf.me, rf.currentTerm, rf.state)
+	rf.changeState(Leader)
 
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
@@ -493,13 +492,20 @@ func (rf *Raft) vote(peer int) {
 	if rf.votedFor == rf.me {
 		DPrintf(tVote, "S%d(%d) vote for self", rf.me, rf.currentTerm)
 	} else {
-		rf.state = Follower
 		DPrintf(tVote, "S%d(%d) vote for %d", rf.me, rf.currentTerm, peer)
+			rf.changeState(Follower)
 	}
 	rf.persist()
 
 	// reset election timeout
 	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
+}
+
+func (rf *Raft) changeState(state serverState) {
+	if rf.state != state {
+		DPrintf(tStatus, "S%d(%d,%v), change state to %v", rf.me, rf.currentTerm, rf.state, state)
+		rf.state = state
+	}
 }
 
 func (rf *Raft) heartbeat() {
