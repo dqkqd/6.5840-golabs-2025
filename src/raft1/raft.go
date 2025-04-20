@@ -330,6 +330,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Rules for Servers: lower term, change to follower (but do not reply immediately)
 	rf.maybeChangeTerm(args.Term)
 
+	reply.Term = rf.currentTerm
+
 	// RequestVote rule 2: voted for is null or candidate id
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 		// and candidate's log is as least as up-to-date
