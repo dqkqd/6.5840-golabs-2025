@@ -7,22 +7,32 @@ type requestVoteReplyWithServerId struct {
 	reply  RequestVoteReply
 }
 
+type electionRecordTimer struct {
+	server int
+	term   int
+	at     time.Time
+}
+
+func (t *electionRecordTimer) refresh(server int, term int) {
+	t.server = server
+	t.term = term
+	t.at = time.Now()
+}
+
 func (rf *Raft) elect() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	// if we are follower, then this should be the first time we send votes.
-	// if we are candidate, then we have been sending votes for a while but could not become the leader.
-	// otherwise, we are leader and should not start election
-	if rf.state == Leader {
+	if !rf.shouldStartElection() {
 		return
 	}
 
-	DPrintf(tElection, "S%d(%d,%v), start election", rf.me, rf.currentTerm, rf.state)
+	DPrintf(tElection, "S%d(%d,%v), election started", rf.me, rf.currentTerm, rf.state)
 
 	rf.maybeChangeTerm(rf.currentTerm + 1)
 	rf.vote(rf.me)
 	rf.changeState(Candidate)
+	rf.resetElectionTimeout()
 
 	lastLogIndex := len(rf.log) - 1
 	args := RequestVoteArgs{
@@ -163,4 +173,48 @@ func (rf *Raft) handleRequestVoteReply(electionTerm int, server int, reply *Requ
 	}
 
 	return totalVotes, false
+}
+
+func (rf *Raft) shouldStartElection() bool {
+	DPrintf(tElection, "S%d(%d,%v), attempt to start an election", rf.me, rf.currentTerm, rf.state)
+
+	// if we are follower, then this should be the first time we send votes.
+	// if we are candidate, then we have been sending votes for a while but could not become the leader.
+	// otherwise, we are leader and should not start election
+	if rf.state == Leader {
+		DPrintf(tElection, "S%d(%d,%v), leader cannot start election", rf.me, rf.currentTerm, rf.state)
+		return false
+	}
+
+	now := time.Now()
+
+	lastAppendEntriesTimeDiff := now.Sub(rf.lastAppendEntriesTime.at)
+	if lastAppendEntriesTimeDiff <= rf.electionTimeout {
+		DPrintf(
+			tElection,
+			"S%d(%d,%v), abort election, have just received append entries from S%d(%d), %05d <= %05d ",
+			rf.me, rf.currentTerm, rf.state, rf.lastAppendEntriesTime.server, rf.lastAppendEntriesTime.term,
+			lastAppendEntriesTimeDiff.Milliseconds(), rf.electionTimeout.Milliseconds(),
+		)
+		return false
+	}
+
+	lastVotedForTimeDiff := now.Sub(rf.lastVotedForTime.at)
+	if lastVotedForTimeDiff <= rf.electionTimeout {
+		DPrintf(
+			tElection,
+			"S%d(%d,%v), abort election, have just voted for S%d(%d), %05d <= %05d",
+			rf.me, rf.currentTerm, rf.state, rf.lastVotedForTime.server, rf.lastVotedForTime.term,
+			lastVotedForTimeDiff.Milliseconds(), rf.electionTimeout.Milliseconds(),
+		)
+		return false
+	}
+
+	return true
+}
+
+func (rf *Raft) resetElectionTimeout() {
+	// reset election timeout
+	rf.electionTimeout = electionTimeout()
+	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
 }

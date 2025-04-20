@@ -65,6 +65,10 @@ type Raft struct {
 	applyCh           chan raftapi.ApplyMsg // apply channel to state machine
 	electionTimeout   time.Duration         // current election timeout
 	replicating       []bool                // boolean array indicate whether an server is replicating
+
+	// record the last time we received append entries, or voted for someone, to determine whether we should start an election
+	lastAppendEntriesTime electionRecordTimer
+	lastVotedForTime      electionRecordTimer
 }
 
 // return currentTerm and whether this server
@@ -213,14 +217,16 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	// Rules for Servers: lower term, change to follower
-	rf.maybeChangeTerm(args.Term)
-
 	// Rule for Server: candidate, convert to follower if receive append entries from leader
 	if rf.state == Candidate {
 		rf.changeState(Follower)
 	}
-	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
+
+	// Rules for Servers: lower term, change to follower
+	rf.maybeChangeTerm(args.Term)
+
+	// record append entries timer
+	rf.lastAppendEntriesTime.refresh(args.LeaderId, args.Term)
 
 	reply.Term = args.Term
 
@@ -346,6 +352,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 			// then we should vote
 			rf.vote(args.CandidateId)
+
+			// record votedfor timer
+			rf.lastVotedForTime.refresh(args.CandidateId, args.Term)
+
 			reply.Term = args.Term
 			reply.VoteGranted = true
 		} else {
@@ -494,10 +504,6 @@ func (rf *Raft) vote(peer int) {
 			DPrintf(tVote, "S%d(%d,%v), vote for %d", rf.me, rf.currentTerm, rf.state, peer)
 			rf.changeState(Follower)
 		}
-
-		// reset election timeout
-		rf.electionTimeout = electionTimeout()
-		rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
 	}
 
 	rf.persist()
