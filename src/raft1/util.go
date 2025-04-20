@@ -31,6 +31,7 @@ const (
 	tApply         logTopic = "APLY"
 	tBecomeLeader  logTopic = "LEAD"
 	tElection      logTopic = "ELCT"
+	tStatus        logTopic = "STAT"
 )
 
 const (
@@ -44,6 +45,7 @@ const (
 	tColorCyan    logColor = "\033[36m"
 	tColorWhite   logColor = "\033[37m"
 	tColorTeal    logColor = "\033[38;5;38m"
+	tColorPurple  logColor = "\033[38;5;93m"
 )
 
 func logInit() {
@@ -88,6 +90,8 @@ func (t logTopic) color() logColor {
 			return tColorGreen
 		case tElection:
 			return tColorCyan
+		case tStatus:
+			return tColorPurple
 		}
 	}
 	return ""
