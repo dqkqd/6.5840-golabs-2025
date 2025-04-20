@@ -102,38 +102,55 @@ func (rf *Raft) collectVotes(voteCh <-chan requestVoteReplyWithServerId, electio
 			return
 
 		case r := <-voteCh:
-			reply := r.reply
-			DPrintf(tVote, "S%d(%d) -> S%d(%d), received vote", rf.me, electionTerm, r.server, reply.Term)
-
-			// Rules for Servers: lower term, change to follower
-			// election for this term should be aborted
-			if electionTerm < reply.Term {
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-
-				DPrintf(tVote, "S%d(%d) -> S%d(%d), higher term", rf.me, electionTerm, r.server, reply.Term)
-				rf.changeTerm(reply.Term)
+			nextTotalVotes, finished := rf.handleRequestVoteReply(electionTerm, r.server, &r.reply, totalVotes)
+			if finished {
 				return
 			}
-
-			if reply.VoteGranted {
-				totalVotes += 1
-				DPrintf(tVote, "S%d(%d) -> S%d(%d), granted, totalVotes=%d", rf.me, electionTerm, r.server, reply.Term, totalVotes)
-			} else {
-				DPrintf(tVote, "S%d(%d) -> S%d(%d), no granted, totalVotes=%d", rf.me, electionTerm, r.server, reply.Term, totalVotes)
-			}
-
-			// if votes received from majority of servers: become leader
-			if totalVotes*2 > len(rf.peers) {
-				rf.mu.Lock()
-				defer rf.mu.Unlock()
-				// rf.currentTerm might be changed at somepoint, when we became leader, or when we became follower.
-				// Hence, we need to check the current term again to make sure we are in the right term.
-				if electionTerm == rf.currentTerm {
-					rf.becomeLeader()
-				}
-				return
-			}
+			totalVotes = nextTotalVotes
 		}
 	}
+}
+
+// handle request vote reply from server,
+func (rf *Raft) handleRequestVoteReply(electionTerm int, server int, reply *RequestVoteReply, totalVotes int) (nextTotalVotes int, finished bool) {
+	if reply.VoteGranted {
+		totalVotes += 1
+	}
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	DPrintf(tVote, "S%d(%d) -> S%d(%d), received request vote reply %+v", rf.me, electionTerm, server, reply.Term, reply)
+
+	if rf.state != Candidate {
+		DPrintf(tVote, "S%d(%d) -> S%d(%d), only candidate can collect votes", rf.me, electionTerm, server, reply.Term)
+		return totalVotes, true
+	}
+
+	// Rules for Servers: lower term, change to follower
+	if rf.currentTerm < reply.Term || electionTerm < reply.Term {
+		DPrintf(tVote, "S%d(%d) -> S%d(%d), received higher term, currentTerm=%d", rf.me, electionTerm, server, reply.Term, rf.currentTerm)
+		rf.changeTerm(reply.Term)
+		return totalVotes, true
+	}
+
+	// staled term
+	if rf.currentTerm != electionTerm {
+		DPrintf(tVote, "S%d(%d) -> S%d(%d), term changed during election, currentTerm=%d", rf.me, electionTerm, server, reply.Term, rf.currentTerm)
+		return totalVotes, true
+	}
+
+	if reply.VoteGranted {
+		DPrintf(tVote, "S%d(%d) -> S%d(%d), granted, totalVotes=%d", rf.me, electionTerm, server, reply.Term, totalVotes)
+	} else {
+		DPrintf(tVote, "S%d(%d) -> S%d(%d), no granted, totalVotes=%d", rf.me, electionTerm, server, reply.Term, totalVotes)
+	}
+
+	// if votes received from majority of servers: become leader
+	if totalVotes*2 > len(rf.peers) {
+		rf.becomeLeader()
+		return totalVotes, true
+	}
+
+	return totalVotes, false
 }
