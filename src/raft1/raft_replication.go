@@ -8,6 +8,12 @@ func (rf *Raft) replicate(server int) {
 		return
 	}
 
+	defer func() {
+		// mark `replicating` as false so other process can run
+		rf.mu.Lock()
+		rf.replicating[server] = false
+		rf.mu.Unlock()
+	}()
 
 loop:
 	for !rf.killed() {
@@ -46,13 +52,7 @@ loop:
 				break loop
 			}
 		}
-
 	}
-
-	// mark `replicating` as false so other process can run
-	rf.mu.Lock()
-	rf.replicating[server] = false
-	rf.mu.Unlock()
 }
 
 // handle returned append entries
