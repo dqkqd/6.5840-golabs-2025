@@ -13,7 +13,7 @@ mr-clean:
 
 [working-directory('src/kvsrv1')]
 @kvsrv-all:
-    go test -v
+    go test -v --race
 
 [working-directory('src/raft1')]
 @lab-3a:
