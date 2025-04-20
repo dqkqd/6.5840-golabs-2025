@@ -402,21 +402,6 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	return ok
 }
 
-// create appendEntriesArgs at certain index
-func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
-	entries := make([]raftLog, len(rf.log[at:]))
-	copy(entries, rf.log[at:])
-
-	return AppendEntriesArgs{
-		Term:         rf.currentTerm,
-		LeaderId:     rf.me,
-		PrevLogIndex: at - 1,
-		PrevLogTerm:  rf.log[at-1].Term,
-		Entries:      entries,
-		LeaderCommit: rf.commitIndex,
-	}
-}
-
 func (rf *Raft) findFirstIndexWithTerm(term int) int {
 	return sort.Search(len(rf.log), func(i int) bool {
 		return rf.log[i].Term >= term

@@ -163,3 +163,18 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 	// always return false indicate that we have not finished
 	return false
 }
+
+// create appendEntriesArgs at certain index
+func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
+	entries := make([]raftLog, len(rf.log[at:]))
+	copy(entries, rf.log[at:])
+
+	return AppendEntriesArgs{
+		Term:         rf.currentTerm,
+		LeaderId:     rf.me,
+		PrevLogIndex: at - 1,
+		PrevLogTerm:  rf.log[at-1].Term,
+		Entries:      entries,
+		LeaderCommit: rf.commitIndex,
+	}
+}
