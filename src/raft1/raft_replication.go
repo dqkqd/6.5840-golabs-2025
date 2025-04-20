@@ -73,7 +73,13 @@ func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, re
 		// otherwise, the reply is from previous append entries round
 		// it might be staled and incorrect. Should retry with different nextIndex
 
-		return rf.state != Leader
+		finished = rf.state != Leader
+
+		if finished {
+			DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), append failed, not a leader", rf.me, args.Term, rf.state, server, reply.Term)
+		}
+
+		return finished
 	}
 
 	if reply.Success {
@@ -95,11 +101,12 @@ func (rf *Raft) canReplicate(server int) bool {
 	if rf.replicating[server] {
 		DPrintf(tSendAppend, "S%d(-,%v) -> S%d(-), already replicating", rf.me, rf.state, server)
 		return false
+	} else {
+		// make this as true, so other process cannot run
+		rf.replicating[server] = true
+		DPrintf(tSendAppend, "S%d(-,%v) -> S%d(-), start replicating", rf.me, rf.state, server)
+		return true
 	}
-	// make this as true, so other process cannot run
-	rf.replicating[server] = true
-	DPrintf(tSendAppend, "S%d(-) -> S%d(-), start replicating", rf.me, server)
-	return true
 }
 
 // handle entries that was successfully sent
@@ -176,7 +183,7 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 		rf.me, rf.currentTerm, rf.state, server, reply.Term, rf.nextIndex[server],
 	)
 
-	// always return false indicate that we have not finished
+	// always return false indicating that we have not finished
 	return false
 }
 
