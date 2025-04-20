@@ -34,21 +34,24 @@ func (rf *Raft) elect() {
 
 	// voters send vote through this channel, it's need to be buffered.
 	voteCh := make(chan requestVoteReplyWithServerId, len(rf.peers)-1)
+	done := make(chan bool, len(rf.peers)-1)
 
-	// send votes in parallel in the background
-	go rf.sendVotes(voteCh, args)
+	// send votes in the background
+	go rf.sendVotes(voteCh, args, done)
 
 	// collect votes in the background
-	go rf.collectVotes(voteCh, args.Term)
+	go func() {
+		rf.collectVotes(voteCh, args.Term)
+		for range len(rf.peers) - 1 {
+			done <- true
+		}
+	}()
 }
 
-func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args RequestVoteArgs) {
+func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args RequestVoteArgs, done <-chan bool) {
 	for server := range rf.peers {
 		if server != rf.me {
 			go func() {
-				// make sure we are not waiting all days
-				electionTimeoutCh := time.After(rf.electionTimeout)
-
 				for !rf.killed() {
 					rf.mu.Lock()
 					state := rf.state
@@ -79,7 +82,8 @@ func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args Reque
 					case <-time.After(retryTimeout()):
 						DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), retry", rf.me, args.Term, state, server, args.Term)
 						continue
-					case <-electionTimeoutCh:
+					case <-done:
+						DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), collect votes stopped, abort", rf.me, args.Term, state, server, args.Term)
 						return
 					case reply := <-replyCh:
 						DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), successfully sent", rf.me, args.Term, state, server, args.Term)
