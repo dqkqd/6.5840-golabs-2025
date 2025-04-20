@@ -214,9 +214,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	// Rules for Servers: lower term, change to follower
-	if rf.currentTerm < args.Term {
-		rf.changeTerm(args.Term)
-	}
+	rf.maybeChangeTerm(args.Term)
 
 	// Rule for Server: candidate, convert to follower if receive append entries from leader
 	if rf.state == Candidate {
@@ -330,11 +328,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	// Rules for Servers: lower term, change to follower (but do not reply immediately)
-	if rf.currentTerm < args.Term {
-		DPrintf(tVote, "S%d(%d) <- S%d(%d), lower term", rf.me, rf.currentTerm, args.CandidateId, args.Term)
-		rf.changeTerm(args.Term)
-		reply.Term = args.Term
-	}
+	rf.maybeChangeTerm(args.Term)
 
 	// RequestVote rule 2: voted for is null or candidate id
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
@@ -415,7 +409,7 @@ func (rf *Raft) findFirstIndexWithTerm(term int) int {
 
 // change term based on Rule for All Servers,
 // lock must not be hold by caller
-func (rf *Raft) changeTerm(term int) {
+func (rf *Raft) maybeChangeTerm(term int) {
 	if term > rf.currentTerm {
 		DPrintf(tStatus, "S%d(%d,%v), change term to %d", rf.me, rf.currentTerm, rf.state, term)
 		rf.currentTerm = term

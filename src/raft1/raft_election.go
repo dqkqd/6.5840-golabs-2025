@@ -20,8 +20,8 @@ func (rf *Raft) elect() {
 
 	DPrintf(tElection, "S%d(%d,%v), start election", rf.me, rf.currentTerm, rf.state)
 
-	rf.changeTerm(rf.currentTerm + 1)
 	rf.electionTimeout = electionTimeout()
+	rf.maybeChangeTerm(rf.currentTerm + 1)
 	rf.vote(rf.me)
 	rf.changeState(Candidate)
 

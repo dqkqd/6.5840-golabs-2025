@@ -57,7 +57,7 @@ func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, re
 		// Rules for Servers: lower term, change to follower
 		// term has been changed from peer, change to follower and return immediately
 		if reply.Term > rf.currentTerm {
-			rf.changeTerm(reply.Term)
+			rf.maybeChangeTerm(reply.Term)
 		}
 		// otherwise, the reply is from previous append entries round
 		// it might be staled and incorrect. Should retry with different nextIndex
