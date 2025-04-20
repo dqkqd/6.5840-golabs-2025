@@ -14,7 +14,7 @@ func (rf *Raft) elect() {
 	// if we are follower, then this should be the first time we send votes.
 	// if we are candidate, then we have been sending votes for a while but could not become the leader.
 	// otherwise, we are leader and should not start election
-	if rf.state != Follower && rf.state != Candidate {
+	if rf.state == Leader {
 		return
 	}
 
