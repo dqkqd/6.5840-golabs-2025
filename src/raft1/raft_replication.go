@@ -134,7 +134,11 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (finished bool) {
 	// rejection, change nextIndex and retry
 
-	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, args=%+v, reply=%+v", rf.me, rf.currentTerm, server, reply.Term, args, reply)
+	DPrintf(
+		tSendAppend,
+		"S%d(%d) -> S%d(%d), append entries failed, args=%+v, reply=%+v",
+		rf.me, args.Term, server, reply.Term, args, reply,
+	)
 
 	if reply.XTerm != -1 && reply.XIndex != -1 {
 		// conflicting term

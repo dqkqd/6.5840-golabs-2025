@@ -10,6 +10,7 @@ import (
 	//	"bytes"
 
 	"bytes"
+	"fmt"
 	"log"
 	"math/rand"
 	"sort"
@@ -173,6 +174,25 @@ type AppendEntriesReply struct {
 	XLen   int // follower's log length, -1 means empty
 }
 
+func (args AppendEntriesArgs) Format(f fmt.State, c rune) {
+	switch c {
+	case 'v':
+		if f.Flag('+') {
+			lastEntries := []raftLog{}
+			if len(args.Entries) > 0 {
+				lastEntries = append(lastEntries, args.Entries[len(args.Entries)-1])
+			}
+
+			fmt.Fprintf(f,
+				"{Term:%+v LeaderId:%+v PrevLogIndex:%+v PrevLogTerm:%+v entriesSize:%+v lastEntries:%+v LeaderCommit:%+v}",
+				args.Term, args.LeaderId, args.PrevLogIndex, args.PrevLogTerm, len(args.Entries), lastEntries, args.LeaderCommit,
+			)
+		}
+	default:
+		fmt.Fprintf(f, "%v", args)
+	}
+}
+
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	// Your code here (3A, 3B).
 	rf.mu.Lock()
@@ -256,7 +276,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// TODO: remove rf.log
 	}
 
-	DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append success, entry: %+v", rf.me, rf.currentTerm, args.LeaderId, args.Term, args.Entries[index:])
+	DPrintf(tReceiveAppend,
+		"S%d(%d) <- S%d(%d), append success, reply: %+v",
+		rf.me, rf.currentTerm, args.LeaderId, args.Term, reply,
+	)
 
 	// persist the log
 	rf.persist()
