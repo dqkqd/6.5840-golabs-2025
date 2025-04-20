@@ -587,8 +587,8 @@ func (rf *Raft) killed() bool {
 }
 
 // do not burn cpu cycle
-func sleepTimeout() time.Duration {
-	return 10 * time.Millisecond
+func retryTimeout() time.Duration {
+	return 200 * time.Millisecond
 }
 
 func electionTimeout() time.Duration {

@@ -65,18 +65,25 @@ func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args Reque
 						return
 					}
 
-					reply := RequestVoteReply{}
-					ok := rf.sendRequestVote(server, &args, &reply)
-					if ok {
-						voteCh <- requestVoteReplyWithServerId{server: server, reply: reply}
-						return
-					}
-					DPrintf(tVote, "S%d(%d) -> S%d(%d), cannot send request votes, retry", rf.me, args.Term, server, args.Term)
+					// `sendRequestVote` can wait even if server reconnect, so we need to add timeout ourselves
+					replyCh := make(chan RequestVoteReply)
+					go func() {
+						reply := RequestVoteReply{}
+						ok := rf.sendRequestVote(server, &args, &reply)
+						if ok {
+							replyCh <- reply
+						}
+					}()
 
 					select {
-					case <-time.After(sleepTimeout()):
+					case <-time.After(retryTimeout()):
+						DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), retry", rf.me, args.Term, state, server, args.Term)
 						continue
 					case <-electionTimeoutCh:
+						return
+					case reply := <-replyCh:
+						DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), successfully sent", rf.me, args.Term, state, server, args.Term)
+						voteCh <- requestVoteReplyWithServerId{server: server, reply: reply}
 						return
 					}
 				}

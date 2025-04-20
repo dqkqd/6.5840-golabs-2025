@@ -8,6 +8,8 @@ func (rf *Raft) replicate(server int) {
 		return
 	}
 
+
+loop:
 	for !rf.killed() {
 
 		// do not send append tries if we are not leader
@@ -23,19 +25,28 @@ func (rf *Raft) replicate(server int) {
 			break
 		}
 
-		reply := AppendEntriesReply{}
-		ok := rf.sendAppendEntries(server, &args, &reply)
-		if !ok {
-			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), cannot send append entries, retry", rf.me, args.Term, server, args.Term)
-			time.Sleep(sleepTimeout())
+		// `sendAppendEntries` can wait even if server reconnect, so we need to add timeout ourselves
+		replyCh := make(chan AppendEntriesReply)
+		go func() {
+			reply := AppendEntriesReply{}
+			ok := rf.sendAppendEntries(server, &args, &reply)
+			if ok {
+				replyCh <- reply
+			}
+		}()
+
+		select {
+		case <-time.After(retryTimeout()):
+			DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), retry", rf.me, args.Term, state, server, args.Term)
 			continue
+		case reply := <-replyCh:
+			finished := rf.handleAppendEntriesReply(server, &args, &reply)
+			if finished {
+				DPrintf(tSendAppend, "S%d(%d,-) -> S%d(%d,-), finished append entries", rf.me, args.Term, server, args.Term)
+				break loop
+			}
 		}
 
-		finished := rf.handleAppendEntriesReply(server, &args, &reply)
-		if finished {
-			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), finished append entries", rf.me, args.Term, server, args.Term)
-			break
-		}
 	}
 
 	// mark `replicating` as false so other process can run
