@@ -415,7 +415,7 @@ func (rf *Raft) maybeChangeTerm(term int) {
 	if term > rf.currentTerm {
 		DPrintf(tStatus, "S%d(%d,%v), change term to %d", rf.me, rf.currentTerm, rf.state, term)
 		rf.currentTerm = term
-		rf.votedFor = -1
+		rf.vote(-1)
 		rf.changeState(Follower)
 		rf.persist()
 	}
@@ -485,16 +485,23 @@ func (rf *Raft) applyCommand() {
 func (rf *Raft) vote(peer int) {
 	rf.votedFor = peer
 
-	if rf.votedFor == rf.me {
-		DPrintf(tVote, "S%d(%d) vote for self", rf.me, rf.currentTerm)
+	if rf.votedFor == -1 {
+		DPrintf(tVote, "S%d(%d,%v), reset vote", rf.me, rf.currentTerm, rf.state)
 	} else {
-		DPrintf(tVote, "S%d(%d) vote for %d", rf.me, rf.currentTerm, peer)
-			rf.changeState(Follower)
-	}
-	rf.persist()
 
-	// reset election timeout
-	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
+		if rf.votedFor == rf.me {
+			DPrintf(tVote, "S%d(%d,%v), vote for self", rf.me, rf.currentTerm, rf.state)
+		} else {
+			DPrintf(tVote, "S%d(%d,%v), vote for %d", rf.me, rf.currentTerm, rf.state, peer)
+			rf.changeState(Follower)
+		}
+
+		// reset election timeout
+		rf.electionTimeout = electionTimeout()
+		rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
+	}
+
+	rf.persist()
 }
 
 func (rf *Raft) changeState(state serverState) {
