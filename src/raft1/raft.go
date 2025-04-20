@@ -25,12 +25,12 @@ import (
 	tester "6.5840/tester1"
 )
 
-type serverState int
+type serverState string
 
 const (
-	Leader serverState = iota
-	Follower
-	Candidate
+	Leader    serverState = "Leader"
+	Follower  serverState = "Follower"
+	Candidate serverState = "Candidate"
 )
 
 // A Go object implementing a single Raft peer.
@@ -204,12 +204,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.XLen = -1
 	reply.Success = false
 
-	DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), receive append %+v ", rf.me, rf.currentTerm, args.LeaderId, args.Term, args)
+	DPrintf(tReceiveAppend, "S%d(%d,%v) <- S%d(%d), receive append %+v", rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, args)
 
 	// AppendEntries rule 1: reply false for smaller term from leader
 	if rf.currentTerm > args.Term {
 		reply.Term = rf.currentTerm
-		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append reject, lower term", rf.me, rf.currentTerm, args.LeaderId, args.Term)
+		DPrintf(tReceiveAppend, "S%d(%d,%v) <- S%d(%d), append reject, lower term, currentTerm=%d", rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, rf.currentTerm)
 		return
 	}
 	// Rule for servers, candidate, convert to follower if receive append entries from leader
@@ -232,8 +232,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// follower's log is too short
 		reply.XLen = len(rf.log)
 		DPrintf(tReceiveAppend,
-			"S%d(%d) <- S%d(%d), append reject, follower's log is too short, len(log)=%d",
-			rf.me, rf.currentTerm, args.LeaderId, args.Term, len(rf.log),
+			"S%d(%d,%v) <- S%d(%d), append reject, follower's log is too short, len(log)=%d",
+			rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, len(rf.log),
 		)
 		return
 	}
@@ -242,7 +242,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if xTerm != args.PrevLogTerm {
 		reply.XTerm = xTerm
 		reply.XIndex = rf.findFirstIndexWithTerm(reply.XTerm)
-		DPrintf(tReceiveAppend, "S%d(%d) <- S%d(%d), append reject, conflict term, reply=`%+v`", rf.me, rf.currentTerm, args.LeaderId, args.Term, reply)
+		DPrintf(tReceiveAppend,
+			"S%d(%d,%v) <- S%d(%d), append reject, conflict term, reply=%+v",
+			rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, reply,
+		)
 		return
 	}
 
@@ -277,8 +280,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	DPrintf(tReceiveAppend,
-		"S%d(%d) <- S%d(%d), append success, reply: %+v",
-		rf.me, rf.currentTerm, args.LeaderId, args.Term, reply,
+		"S%d(%d,%v) <- S%d(%d), append success, reply: %+v",
+		rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, reply,
 	)
 
 	// persist the log
@@ -315,11 +318,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	DPrintf(tVote, "S%d(%d) <- S%d(%d), receive request vote", rf.me, rf.currentTerm, args.CandidateId, args.Term)
+	DPrintf(tVote, "S%d(%d,%v) <- S%d(%d), receive request vote", rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term)
 
 	// RequestVote rule 1: reply false if request's term < current term
 	if rf.currentTerm > args.Term {
-		DPrintf(tVote, "S%d(%d) <- S%d(%d), higher term, do not vote", rf.me, rf.currentTerm, args.CandidateId, args.Term)
+		DPrintf(tVote, "S%d(%d,%v) <- S%d(%d), higher term, do not vote", rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term)
 
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
@@ -340,8 +343,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		lastLogTerm := rf.log[lastLogIndex].Term
 		if args.LastLogTerm > lastLogTerm || (args.LastLogTerm == lastLogTerm && args.LastLogIndex >= lastLogIndex) {
 			DPrintf(tVote,
-				"S%d(%d) <- S%d(%d), accept (term, index): S%d(%d, %d) <= S%d(%d, %d)",
-				rf.me, rf.currentTerm, args.CandidateId, args.Term,
+				"S%d(%d,%v) <- S%d(%d), accept (term, index): S%d(%d, %d) <= S%d(%d, %d)",
+				rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term,
 				rf.me, lastLogTerm, lastLogIndex,
 				args.CandidateId, args.LastLogTerm, args.LastLogIndex,
 			)
@@ -352,14 +355,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.VoteGranted = true
 		} else {
 			DPrintf(tVote,
-				"S%d(%d) <- S%d(%d), reject (term, index): S%d(%d, %d) > S%d(%d, %d)",
-				rf.me, rf.currentTerm, args.CandidateId, args.Term,
-				rf.me, lastLogTerm, lastLogIndex,
-				args.CandidateId, args.LastLogTerm, args.LastLogIndex,
+				"S%d(%d,%v) <- S%d(%d), reject (term, index): S%d(%d, %d) > S%d(%d, %d)",
+				rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term,
+				rf.me, lastLogTerm, lastLogIndex, args.CandidateId, args.LastLogTerm, args.LastLogIndex,
 			)
 		}
 	} else {
-		DPrintf(tVote, "S%d(%d) <- S%d(%d), reject, already voted for S%d", rf.me, rf.currentTerm, args.CandidateId, args.Term, rf.votedFor)
+		DPrintf(tVote,
+			"S%d(%d,%v) <- S%d(%d), reject, already voted for S%d",
+			rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term, rf.votedFor,
+		)
 	}
 }
 
@@ -391,13 +396,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	DPrintf(tVote, "S%d(%d) -> S%d(-), send request vote", rf.me, args.Term, server)
+	DPrintf(tVote, "S%d(%d,-) -> S%d(-), send request vote", rf.me, args.Term, server)
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	DPrintf(tSendAppend, "S%d(%d) -> S%d(-), send append entries", rf.me, args.Term, server)
+	DPrintf(tSendAppend, "S%d(%d,-) -> S%d(-), send append entries", rf.me, args.Term, server)
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
@@ -412,6 +417,7 @@ func (rf *Raft) findFirstIndexWithTerm(term int) int {
 // lock must not be hold by caller
 func (rf *Raft) changeTerm(term int) {
 	if term > rf.currentTerm {
+		DPrintf(tStatus, "S%d(%d,%v), change term to %d", rf.me, rf.currentTerm, rf.state, term)
 		rf.currentTerm = term
 		rf.state = Follower
 		rf.votedFor = -1
@@ -424,12 +430,13 @@ func (rf *Raft) changeTerm(term int) {
 func (rf *Raft) becomeLeader() {
 	// only candidate can become leader
 	if rf.state != Candidate {
+		DPrintf(tBecomeLeader, "S%d(%d,%v) cannot become leader", rf.me, rf.currentTerm, rf.state)
 		return
 	}
 
 	rf.state = Leader
 
-	DPrintf(tBecomeLeader, "S%d(%d) become leader", rf.me, rf.currentTerm)
+	DPrintf(tBecomeLeader, "S%d(%d,%v) become leader", rf.me, rf.currentTerm, rf.state)
 
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
@@ -470,10 +477,10 @@ func (rf *Raft) applyCommand() {
 				Command:      log.Command,
 				CommandIndex: log.CommandIndex,
 			}
-			DPrintf(tApply, "S%d(%d), apply, log: %+v", rf.me, rf.currentTerm, log)
+			DPrintf(tApply, "S%d(%d,%v), apply, log: %+v", rf.me, rf.currentTerm, rf.state, log)
 
 		case noOpLogEntry:
-			DPrintf(tApply, "S%d(%d), skip, log: %+v", rf.me, rf.currentTerm, log)
+			DPrintf(tApply, "S%d(%d,%v), skip, log: %+v", rf.me, rf.currentTerm, rf.state, log)
 		}
 
 	}

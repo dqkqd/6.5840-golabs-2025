@@ -19,7 +19,7 @@ func (rf *Raft) replicate(server int) {
 		rf.mu.Unlock()
 
 		if state != Leader {
-			DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), do not send append entries, not a leader", rf.me, args.Term, server, args.Term)
+			DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d,-), do not send append entries", rf.me, args.Term, state, server, args.Term)
 			break
 		}
 
@@ -49,10 +49,10 @@ func (rf *Raft) replicate(server int) {
 func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (finished bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), handle append entries", rf.me, args.Term, server, reply.Term)
+	DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), handle append entries", rf.me, args.Term, rf.state, server, reply.Term)
 
 	if reply.Term != rf.currentTerm {
-		DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append failed, term changed, currentTerm=%d", rf.me, args.Term, server, reply.Term, rf.currentTerm)
+		DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), append failed, term changed, currentTerm=%d", rf.me, args.Term, rf.state, server, reply.Term, rf.currentTerm)
 
 		// Rules for Servers: lower term, change to follower
 		// term has been changed from peer, change to follower and return immediately
@@ -82,7 +82,7 @@ func (rf *Raft) canReplicate(server int) bool {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	if rf.replicating[server] {
-		DPrintf(tSendAppend, "S%d(-) -> S%d(-), already replicating", rf.me, server)
+		DPrintf(tSendAppend, "S%d(-,%v) -> S%d(-), already replicating", rf.me, rf.state, server)
 		return false
 	}
 	// make this as true, so other process cannot run
@@ -95,7 +95,7 @@ func (rf *Raft) canReplicate(server int) bool {
 // return true if all the log are replicated
 // otherwise, return false
 func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (finished bool) {
-	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries succeeded", rf.me, args.Term, server, reply.Term)
+	DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), append entries succeeded", rf.me, args.Term, rf.state, server, reply.Term)
 
 	// update nextIndex and matchIndex
 	rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
@@ -124,8 +124,8 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 
 	if !finished {
 		DPrintf(tSendAppend,
-			"S%d(%d) -> S%d(%d), len(log)=%d > nextIndex=%d, need another append entries round",
-			rf.me, args.Term, server, reply.Term, len(rf.log), rf.nextIndex[server],
+			"S%d(%d,%v) -> S%d(%d), len(log)=%d > nextIndex=%d, need another append entries round",
+			rf.me, args.Term, rf.state, server, reply.Term, len(rf.log), rf.nextIndex[server],
 		)
 	}
 
@@ -138,8 +138,8 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 
 	DPrintf(
 		tSendAppend,
-		"S%d(%d) -> S%d(%d), append entries failed, args=%+v, reply=%+v",
-		rf.me, args.Term, server, reply.Term, args, reply,
+		"S%d(%d,%v) -> S%d(%d), append entries failed, args=%+v, reply=%+v",
+		rf.me, args.Term, rf.state, server, reply.Term, args, reply,
 	)
 
 	if reply.XTerm != -1 && reply.XIndex != -1 {
@@ -160,7 +160,10 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 		rf.nextIndex[server] = reply.XLen
 	}
 
-	DPrintf(tSendAppend, "S%d(%d) -> S%d(%d), append entries failed, change nextIndex=%d", rf.me, rf.currentTerm, server, reply.Term, rf.nextIndex[server])
+	DPrintf(tSendAppend,
+		"S%d(%d,%v) -> S%d(%d), append entries failed, change nextIndex=%d",
+		rf.me, rf.currentTerm, rf.state, server, reply.Term, rf.nextIndex[server],
+	)
 
 	// always return false indicate that we have not finished
 	return false
