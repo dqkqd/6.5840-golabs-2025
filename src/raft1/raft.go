@@ -274,7 +274,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// otherwise, we traversed all entries thus the append does nothing.
 	if len(args.Entries[index:]) > 0 {
 		rf.log = append(rf.log, args.Entries[index:]...)
-		// TODO: remove rf.log
 	}
 
 	DPrintf(tReceiveAppend,
