@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, LiteralString
 from uuid import uuid4
 
 import typer
@@ -27,11 +27,17 @@ class Command(str, Enum):
     TestReElection3A = "TestReElection3A"
     TestManyElections3A = "TestManyElections3A"
     TestBasicAgree3B = "TestBasicAgree3B"
-    TestFigure8Unreliable3C = "TestFigure8Unreliable3C"
     TestBackup3B = "TestBackup3B"
+    TestFigure8Unreliable3C = "TestFigure8Unreliable3C"
     Test3A = "3A"
     Test3B = "3B"
     Test3C = "3C"
+
+    def prepared_command(self, race: bool) -> LiteralString:
+        command = f"go test -run {self.value}"
+        if race:
+            command += " --race"
+        return command
 
 
 def failed(s: str) -> bool:
@@ -51,7 +57,7 @@ def check_future(future: concurrent.futures.Future[None]):
             raise ex
 
 
-def run_command_fn(command: str) -> None:
+def run_command_fn(command: LiteralString) -> None:
     output_file = output_dir() / uuid4().hex
     _ = subprocess.run(command.split(" "), stdout=output_file.open("w"))
 
@@ -62,7 +68,7 @@ def run_command_fn(command: str) -> None:
         raise CommandError(output_file.read_text())
 
 
-def run_command_sequence(command: str) -> None:
+def run_command_sequence(command: LiteralString) -> None:
     output = subprocess.run(command.split(" "))
     if output.returncode != 0:
         raise CommandError(f"failed {command}")
@@ -73,11 +79,12 @@ def parallel(
     case: Annotated[Command, typer.Option(case_sensitive=False)],
     iterations: int = 5,
     verbose: bool = False,
+    race: bool = False,
 ):
     if verbose:
         os.environ["DEBUG"] = "1"
 
-    command = f"go test -run {case.value} --race"
+    command = case.prepared_command(race)
     print(f"Running `{command}` with {iterations} iterations")
     with concurrent.futures.ProcessPoolExecutor() as executor:
         futures = concurrent.futures.wait(
@@ -95,11 +102,12 @@ def sequence(
     case: Annotated[Command, typer.Option(case_sensitive=False)],
     iterations: int = 5,
     verbose: bool = False,
+    race: bool = False,
 ):
     if verbose:
         os.environ["DEBUG"] = "1"
 
-    command = f"go test -run {case.value} --race"
+    command = case.prepared_command(race)
     print(f"Running `{command}` with {iterations} iterations")
     for _ in tqdm(range(iterations)):
         run_command_sequence(command=command)
