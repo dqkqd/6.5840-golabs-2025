@@ -1,6 +1,9 @@
 package raft
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // looping and send append entries to a peer until agreement is reached
 func (rf *Raft) replicate(server int) {
@@ -119,25 +122,9 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 	rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
 	rf.nextIndex[server] = rf.matchIndex[server] + 1
 
-	// find majority replicated entries to commit
-	for n := len(rf.log) - 1; n > rf.commitIndex; n-- {
-		if rf.log[n].Term == rf.currentTerm {
-			replicatedCount := 1 // self should be count
-			for i := range rf.peers {
-				if rf.me != i && rf.matchIndex[i] >= n {
-					replicatedCount++
-				}
-			}
-			// majority of servers have been replicated
-			if replicatedCount*2 > len(rf.peers) {
-				rf.commitIndex = n
-				break
-			}
-		}
-	}
+	rf.setCommitIndexAsMajorityReplicatedIndex()
 
 	finished = rf.nextIndex[server] == len(rf.log)
-
 	if !finished {
 		DPrintf(tSendAppend,
 			"S%d(%d,%v) -> S%d(%d), len(log)=%d > nextIndex=%d, need another append entries round",
@@ -196,5 +183,34 @@ func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
 		PrevLogTerm:  rf.log[at-1].Term,
 		Entries:      entries,
 		LeaderCommit: rf.commitIndex,
+	}
+}
+
+func (rf *Raft) setCommitIndexAsMajorityReplicatedIndex() {
+	// find majority matchIndex `n` such that 0 <= n < len(log),
+	// we instead find the first index that the majority doesn't hold.
+	// If the majority doesn't hold for `i`, then it doesn't hold for `i + 1` and so on,
+	// then `n = index - 1` (the largest index that the majority holds true)
+	// we can always sure `n` exists, because all `matchIndex >= 0`
+	index := sort.Search(len(rf.log), func(i int) bool {
+		count := 1 // self should always be counted
+		for server := range rf.peers {
+			if rf.matchIndex[server] >= i {
+				count++
+			}
+		}
+		return count*2 <= len(rf.peers)
+	})
+
+	n := index - 1
+
+	// only check the largest `n` such that `rf.log[n].Term == currentTerm`,
+	// and since we don't search for index that have already committed,
+	// the lower bound should also be higher than commitIndex
+	lastCurrentTermIndex := rf.findLastIndexWithTerm(rf.currentTerm)
+
+	n = min(n, lastCurrentTermIndex)
+	if n > rf.commitIndex && rf.log[n].Term == rf.currentTerm {
+		rf.commitIndex = n
 	}
 }
