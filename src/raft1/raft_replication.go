@@ -121,7 +121,6 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 
 	// find majority replicated entries to commit
 	for n := len(rf.log) - 1; n > rf.commitIndex; n-- {
-		// TODO: might not need this check?
 		if rf.log[n].Term == rf.currentTerm {
 			replicatedCount := 1 // self should be count
 			for i := range rf.peers {
@@ -132,7 +131,6 @@ func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, 
 			// majority of servers have been replicated
 			if replicatedCount*2 > len(rf.peers) {
 				rf.commitIndex = n
-				go rf.applyCommand()
 				break
 			}
 		}

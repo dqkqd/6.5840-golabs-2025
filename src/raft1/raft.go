@@ -293,7 +293,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// AppendEntries rule 5: change commit index
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
-		go rf.applyCommand()
 	}
 }
 
@@ -460,31 +459,42 @@ func (rf *Raft) becomeLeader() {
 	rf.heartbeatNotifier.changeTimeout(heartbeatTimeout(), wakeupNow)
 }
 
-// apply log to state machine
-func (rf *Raft) applyCommand() {
+// get log command to send to the state machine,
+// only run apply if lastApplied < commitIndex
+func (rf *Raft) applyLog() (log raftLog, ok bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	for !rf.killed() && rf.lastApplied < rf.commitIndex {
-		// TODO: persist lastApplied
-
-		// do not send index-0
+	if rf.lastApplied < rf.commitIndex {
 		rf.lastApplied++
+		return rf.log[rf.lastApplied], true
+	}
 
-		log := rf.log[rf.lastApplied]
+	return
+}
 
-		switch log.LogEntryType {
+// looping and applying log to the state machine
+func (rf *Raft) applier() {
+	for !rf.killed() {
+		log, ok := rf.applyLog()
+		if ok {
+			switch log.LogEntryType {
 
-		case clientLogEntry:
-			rf.applyCh <- raftapi.ApplyMsg{
-				CommandValid: true,
-				Command:      log.Command,
-				CommandIndex: log.CommandIndex,
+			case clientLogEntry:
+				// wait on blocking channel, to avoid sending command out of order
+				rf.applyCh <- raftapi.ApplyMsg{
+					CommandValid: true,
+					Command:      log.Command,
+					CommandIndex: log.CommandIndex,
+				}
+				DPrintf(tApply, "S%d(%d,-), apply, log: %+v", rf.me, log.Term, log)
+
+			case noOpLogEntry:
+				DPrintf(tApply, "S%d(%d,-), skip, log: %+v", rf.me, log.Term, log)
 			}
-			DPrintf(tApply, "S%d(%d,%v), apply, log: %+v", rf.me, rf.currentTerm, rf.state, log)
-
-		case noOpLogEntry:
-			DPrintf(tApply, "S%d(%d,%v), skip, log: %+v", rf.me, rf.currentTerm, rf.state, log)
+		} else {
+			// wait abit and check again later
+			time.Sleep(30 * time.Millisecond)
 		}
 
 	}
@@ -497,7 +507,6 @@ func (rf *Raft) vote(peer int) {
 	if rf.votedFor == -1 {
 		DPrintf(tVote, "S%d(%d,%v), reset vote", rf.me, rf.currentTerm, rf.state)
 	} else {
-
 		if rf.votedFor == rf.me {
 			DPrintf(tVote, "S%d(%d,%v), vote for self", rf.me, rf.currentTerm, rf.state)
 		} else {
@@ -669,6 +678,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// main loop
 	go rf.ticker()
+
+	// apply command
+	go rf.applier()
 
 	return rf
 }
