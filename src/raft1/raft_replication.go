@@ -161,8 +161,7 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 	if reply.XTerm != -1 && reply.XIndex != -1 {
 		// conflicting term
 
-		// find the last index of XTerm (the index before the first XTerm + 1)
-		lastXTermIndex := rf.findFirstIndexWithTerm(reply.XTerm+1) - 1
+		lastXTermIndex := rf.findLastIndexWithTerm(reply.XTerm)
 
 		if lastXTermIndex >= 0 && rf.log[lastXTermIndex].Term == reply.XTerm {
 			// leader has XTerm

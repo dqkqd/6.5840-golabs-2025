@@ -417,6 +417,11 @@ func (rf *Raft) findFirstIndexWithTerm(term int) int {
 	})
 }
 
+func (rf *Raft) findLastIndexWithTerm(term int) int {
+	// find the first index of term + 1, then subtract by 1
+	return rf.findFirstIndexWithTerm(term+1) - 1
+}
+
 // change term based on Rule for All Servers,
 // lock must not be hold by caller
 func (rf *Raft) maybeChangeTerm(term int) {
