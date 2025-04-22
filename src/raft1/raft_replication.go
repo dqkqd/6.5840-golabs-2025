@@ -215,5 +215,6 @@ func (rf *Raft) setCommitIndexAsMajorityReplicatedIndex() {
 	n = min(n, lastCurrentTermIndex)
 	if n > rf.commitIndex && rf.log[n].Term == rf.currentTerm {
 		rf.commitIndex = n
+		go func() { rf.commitIndexCh <- n }()
 	}
 }

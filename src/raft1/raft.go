@@ -65,6 +65,7 @@ type Raft struct {
 	applyCh           chan raftapi.ApplyMsg // apply channel to state machine
 	electionTimeout   time.Duration         // current election timeout
 	replicating       []bool                // boolean array indicate whether an server is replicating
+	commitIndexCh     chan int
 
 	// record the last time we received append entries, or voted for someone, to determine whether we should start an election
 	lastAppendEntriesTime electionRecordTimer
@@ -293,6 +294,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// AppendEntries rule 5: change commit index
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
+		commitIndex := rf.commitIndex
+		go func() { rf.commitIndexCh <- commitIndex }()
 	}
 }
 
@@ -644,6 +647,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	go rf.ticker()
 
 	// apply command
+	rf.commitIndexCh = make(chan int)
 	go rf.applier()
 
 	return rf

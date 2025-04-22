@@ -1,16 +1,19 @@
 package raft
 
 import (
-	"time"
-
 	"6.5840/raftapi"
 )
 
 // looping and applying log to the state machine
 func (rf *Raft) applier() {
 	for !rf.killed() {
-		logs, ok := rf.applyLog()
-		if ok {
+		commitIndex := <-rf.commitIndexCh
+
+		if rf.lastApplied < commitIndex {
+			rf.mu.Lock()
+			logs := rf.log[rf.lastApplied+1 : commitIndex+1]
+			rf.mu.Unlock()
+			rf.lastApplied = commitIndex
 			for _, log := range logs {
 				switch log.LogEntryType {
 
@@ -27,25 +30,7 @@ func (rf *Raft) applier() {
 					DPrintf(tApply, "S%d(%d,-), skip, log: %+v", rf.me, log.Term, log)
 				}
 			}
-		} else {
-			// wait abit and check again later
-			time.Sleep(30 * time.Millisecond)
 		}
 
 	}
-}
-
-// get log command to send to the state machine,
-// only run apply if lastApplied < commitIndex
-func (rf *Raft) applyLog() (logs []raftLog, ok bool) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-
-	if rf.lastApplied < rf.commitIndex {
-		logs = rf.log[rf.lastApplied+1 : rf.commitIndex+1]
-		rf.lastApplied = rf.commitIndex
-		return logs, true
-	}
-
-	return
 }
