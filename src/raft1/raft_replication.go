@@ -65,26 +65,29 @@ func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, re
 	defer rf.mu.Unlock()
 	DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), handle append entries", rf.me, args.Term, rf.state, server, reply.Term)
 
-	if reply.Term != rf.currentTerm {
+	// the reply term doesn't match current term or args term
+	// we check if we should change the term and then abort the handling
+	if reply.Term != rf.currentTerm || reply.Term != args.Term {
 		DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), append failed, term changed, currentTerm=%d", rf.me, args.Term, rf.state, server, reply.Term, rf.currentTerm)
 
 		// Rules for Servers: lower term, change to follower
 		// term has been changed from peer, change to follower and return immediately
-		if reply.Term > rf.currentTerm {
+		if rf.currentTerm < reply.Term {
 			rf.maybeChangeTerm(reply.Term)
 		}
 		// otherwise, the reply is from previous append entries round
 		// it might be staled and incorrect. Should retry with different nextIndex
 
-		finished = rf.state != Leader
-
-		if finished {
+		// only continue if we are still the leader
+		if rf.state != Leader {
 			DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), append failed, not a leader", rf.me, args.Term, rf.state, server, reply.Term)
+			return true
+		} else {
+			return false
 		}
-
-		return finished
 	}
 
+	// can be sure that current term, reply term, and args term match
 	if reply.Success {
 		return rf.handleSuccessAppendEntries(server, args, reply)
 	} else {
