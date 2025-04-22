@@ -131,39 +131,48 @@ func (rf *Raft) collectVotes(voteCh <-chan requestVoteReplyWithServerId, electio
 	}
 }
 
-// handle request vote reply from server,
+// handle request vote reply from server
+// return the total votes and whether this election should be stopped
 func (rf *Raft) handleRequestVoteReply(electionTerm int, server int, reply *RequestVoteReply, totalVotes int) (nextTotalVotes int, finished bool) {
-	if reply.VoteGranted {
-		totalVotes += 1
-	}
-
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), received request vote reply %+v", rf.me, electionTerm, rf.state, server, reply.Term, reply)
+	DPrintf(tVote,
+		"S%d(%d,%v) -> S%d(%d), received request vote reply %+v for election %d",
+		rf.me, rf.currentTerm, rf.state, server, reply.Term, reply, electionTerm,
+	)
+
+	// the reply term doesn't match current term or election term
+	// there is only 2 cases:
+	// - server has higher term than the leader
+	// - server has lower term than (or equal with) the leader but the election term is staled
+	if reply.Term != rf.currentTerm || reply.Term != electionTerm {
+		if rf.currentTerm < reply.Term {
+			DPrintf(tVote,
+				"S%d(%d,%v) -> S%d(%d), received higher term for election %d, abort",
+				rf.me, rf.currentTerm, rf.state, server, reply.Term, electionTerm,
+			)
+			rf.maybeChangeTerm(reply.Term)
+		} else {
+			DPrintf(tVote,
+				"S%d(%d,%v) -> S%d(%d), term changed during election %d, abort",
+				rf.me, rf.currentTerm, rf.state, server, reply.Term, electionTerm,
+			)
+		}
+
+		return totalVotes, true
+	}
 
 	if rf.state != Candidate {
-		DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), only candidate can collect votes", rf.me, electionTerm, rf.state, server, reply.Term)
-		return totalVotes, true
-	}
-
-	// Rules for Servers: lower term, change to follower
-	if rf.currentTerm < reply.Term || electionTerm < reply.Term {
-		DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), received higher term, currentTerm=%d", rf.me, electionTerm, rf.state, server, reply.Term, rf.currentTerm)
-		rf.maybeChangeTerm(reply.Term)
-		return totalVotes, true
-	}
-
-	// staled term
-	if rf.currentTerm != electionTerm {
-		DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), term changed during election, currentTerm=%d", rf.me, electionTerm, rf.state, server, reply.Term, rf.currentTerm)
+		DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), only candidate can collect votes", rf.me, rf.currentTerm, rf.state, server, reply.Term)
 		return totalVotes, true
 	}
 
 	if reply.VoteGranted {
-		DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), granted, totalVotes=%d", rf.me, electionTerm, rf.state, server, reply.Term, totalVotes)
+		DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), granted, totalVotes=%d", rf.me, rf.currentTerm, rf.state, server, reply.Term, totalVotes)
+		totalVotes += 1
 	} else {
-		DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), no granted, totalVotes=%d", rf.me, electionTerm, rf.state, server, reply.Term, totalVotes)
+		DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), no granted, totalVotes=%d", rf.me, rf.currentTerm, rf.state, server, reply.Term, totalVotes)
 	}
 
 	// if votes received from majority of servers: become leader
