@@ -44,21 +44,15 @@ func (rf *Raft) elect() {
 
 	// voters send vote through this channel, it's need to be buffered.
 	voteCh := make(chan requestVoteReplyWithServerId, len(rf.peers)-1)
-	done := make(chan bool, len(rf.peers)-1)
 
 	// send votes in the background
-	go rf.sendVotes(voteCh, args, done)
+	go rf.sendVotes(voteCh, args)
 
 	// collect votes in the background
-	go func() {
-		rf.collectVotes(voteCh, args.Term)
-		for range len(rf.peers) - 1 {
-			done <- true
-		}
-	}()
+	go rf.collectVotes(voteCh, args.Term)
 }
 
-func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args RequestVoteArgs, done <-chan bool) {
+func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args RequestVoteArgs) {
 	for server := range rf.peers {
 		if server != rf.me {
 			go func() {
@@ -92,9 +86,6 @@ func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args Reque
 					case <-time.After(retryTimeout()):
 						DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), retry", rf.me, args.Term, state, server, args.Term)
 						continue
-					case <-done:
-						DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), collect votes stopped, abort", rf.me, args.Term, state, server, args.Term)
-						return
 					case reply := <-replyCh:
 						DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), successfully sent", rf.me, args.Term, state, server, args.Term)
 						voteCh <- requestVoteReplyWithServerId{server: server, reply: reply}
@@ -107,27 +98,17 @@ func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args Reque
 }
 
 func (rf *Raft) collectVotes(voteCh <-chan requestVoteReplyWithServerId, electionTerm int) {
-	// make sure we are not waiting all days
-	electionTimeoutCh := time.After(rf.electionTimeout)
-
 	// we have voted for ourselves already, so this should be 1
 	totalVotes := 1
 
 	// waiting from vote channels and timeout
 	for !rf.killed() {
-		select {
-
-		// timeout
-		case <-electionTimeoutCh:
+		r := <-voteCh
+		nextTotalVotes, finished := rf.handleRequestVoteReply(electionTerm, r.server, &r.reply, totalVotes)
+		if finished {
 			return
-
-		case r := <-voteCh:
-			nextTotalVotes, finished := rf.handleRequestVoteReply(electionTerm, r.server, &r.reply, totalVotes)
-			if finished {
-				return
-			}
-			totalVotes = nextTotalVotes
 		}
+		totalVotes = nextTotalVotes
 	}
 }
 
