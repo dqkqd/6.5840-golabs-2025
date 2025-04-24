@@ -59,13 +59,13 @@ type Raft struct {
 	matchIndex []int // for each server, index of highest log entry known to be replicated on server (initialized to 0, increases monotonically)
 
 	// optional fields
-	state             serverState           // state of the server: leader, follower, or candidate
-	electionNotifier  waitNotifier          // notify and reset election timeout)
-	heartbeatNotifier waitNotifier          // notify heartbeat
-	applyCh           chan raftapi.ApplyMsg // apply channel to state machine
-	electionTimeout   time.Duration         // current election timeout
-	replicating       []bool                // boolean array indicate whether an server is replicating
-	commitIndexCh     chan int
+	state            serverState           // state of the server: leader, follower, or candidate
+	electionModifier chan time.Duration    // whether to reset election timeout
+	heartbeatTrigger chan bool             // whether to trigger heartbeat now
+	applyCh          chan raftapi.ApplyMsg // apply channel to state machine
+	electionTimeout  time.Duration         // current election timeout
+	replicating      []bool                // boolean array indicate whether an server is replicating
+	commitIndexCh    chan int
 
 	// record the last time we received append entries, or voted for someone, to determine whether we should start an election
 	lastAppendEntriesTime electionRecordTimer
@@ -463,8 +463,8 @@ func (rf *Raft) becomeLeader() {
 	// put an no-op entry into the log
 	rf.log = append(rf.log, raftLog{CommandIndex: rf.log[len(rf.log)-1].CommandIndex, Term: rf.currentTerm, LogEntryType: noOpLogEntry})
 	rf.persist()
-	// reset heartbeat and send heartbeat immediately
-	rf.heartbeatNotifier.changeTimeout(heartbeatTimeout(), wakeupNow)
+	// trigger heartbeat now
+	rf.heartbeatTrigger <- true
 }
 
 // grant vote for someone, caller must hold lock
@@ -584,14 +584,33 @@ func heartbeatTimeout() time.Duration {
 }
 
 func (rf *Raft) ticker() {
+	heartbeatTimer := time.After(heartbeatTimeout())
+
+	var electionTimeout time.Duration
+	var electionTimer <-chan time.Time
+
 	for !rf.killed() {
 		select {
 
-		case <-rf.electionNotifier.wakeup:
-			rf.elect()
+		// manually trigger heartbeat
+		case <-rf.heartbeatTrigger:
+			go rf.heartbeat()
+			heartbeatTimer = time.After(heartbeatTimeout())
 
-		case <-rf.heartbeatNotifier.wakeup:
-			rf.heartbeat()
+		// automatically trigger heartbeat
+		case <-heartbeatTimer:
+			go rf.heartbeat()
+			heartbeatTimer = time.After(heartbeatTimeout())
+
+		// manually modify electionTimeout
+		case electionTimeout = <-rf.electionModifier:
+			electionTimer = time.After(electionTimeout)
+
+		// automatically trigger election
+		case <-electionTimer:
+			go rf.elect()
+			electionTimer = time.After(electionTimeout)
+
 		}
 	}
 }
@@ -632,10 +651,15 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.log = []raftLog{}
 	rf.log = append(rf.log, raftLog{CommandIndex: 0, Term: 0, LogEntryType: noOpLogEntry})
 
-	// initialize election and heartbeat notifier
-	rf.electionTimeout = electionTimeout()
-	rf.electionNotifier = waitNotify(rf.electionTimeout)
-	rf.heartbeatNotifier = waitNotify(heartbeatTimeout())
+	// initialize election and heartbeat timeout channel
+	rf.heartbeatTrigger = make(chan bool)
+
+	initElectionTimeout := electionTimeout()
+	rf.electionTimeout = initElectionTimeout
+	rf.electionModifier = make(chan time.Duration)
+	go func() {
+		rf.electionModifier <- initElectionTimeout
+	}()
 
 	// allow to replicate to other servers
 	rf.replicating = make([]bool, len(rf.peers))

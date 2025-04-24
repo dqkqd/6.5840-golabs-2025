@@ -206,5 +206,5 @@ func (rf *Raft) shouldStartElection() bool {
 func (rf *Raft) resetElectionTimeout() {
 	// reset election timeout
 	rf.electionTimeout = electionTimeout()
-	rf.electionNotifier.changeTimeout(rf.electionTimeout, wakeupLater)
+	rf.electionModifier <- rf.electionTimeout
 }
