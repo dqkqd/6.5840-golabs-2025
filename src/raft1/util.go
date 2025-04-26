@@ -23,29 +23,35 @@ type (
 )
 
 const (
-	tVote          logTopic = "VOTE"
-	tSendAppend    logTopic = "SLOG"
-	tReceiveAppend logTopic = "RLOG"
-	tHeartbeat     logTopic = "BEAT"
-	tStart         logTopic = "STRT"
-	tApply         logTopic = "APLY"
-	tBecomeLeader  logTopic = "LEAD"
-	tElection      logTopic = "ELCT"
-	tStatus        logTopic = "STAT"
+	tVote            logTopic = "VOTE"
+	tSendAppend      logTopic = "SLOG"
+	tReceiveAppend   logTopic = "RLOG"
+	tHeartbeat       logTopic = "BEAT"
+	tStart           logTopic = "STRT"
+	tApply           logTopic = "APLY"
+	tBecomeLeader    logTopic = "LEAD"
+	tElection        logTopic = "ELCT"
+	tStatus          logTopic = "STAT"
+	tSnapshot        logTopic = "SNAP"
+	tSendSnapshot    logTopic = "SSNP"
+	tReceiveSnapshot logTopic = "RSNP"
 )
 
 const (
-	tColorReset   logColor = "\033[0m"
-	tColorBlack   logColor = "\033[30m"
-	tColorRed     logColor = "\033[31m"
-	tColorGreen   logColor = "\033[32m"
-	tColorYellow  logColor = "\033[33m"
-	tColorBlue    logColor = "\033[34m"
-	tColorMagenta logColor = "\033[35m"
-	tColorCyan    logColor = "\033[36m"
-	tColorWhite   logColor = "\033[37m"
-	tColorTeal    logColor = "\033[38;5;38m"
-	tColorPurple  logColor = "\033[38;5;93m"
+	tColorReset      logColor = "\033[0m"
+	tColorBlack      logColor = "\033[30m"
+	tColorRed        logColor = "\033[31m"
+	tColorGreen      logColor = "\033[32m"
+	tColorYellow     logColor = "\033[33m"
+	tColorBlue       logColor = "\033[34m"
+	tColorMagenta    logColor = "\033[35m"
+	tColorCyan       logColor = "\033[36m"
+	tColorWhite      logColor = "\033[37m"
+	tColorTeal       logColor = "\033[38;5;38m"
+	tColorPurple     logColor = "\033[38;5;93m"
+	tColorDarkOrange logColor = "\033[38;5;208m"
+	tColorOrange     logColor = "\033[38;5;214m"
+	tColorGold       logColor = "\033[38;5;220m"
 )
 
 func logInit() {
@@ -92,6 +98,12 @@ func (t logTopic) color() logColor {
 			return tColorCyan
 		case tStatus:
 			return tColorPurple
+		case tSnapshot:
+			return tColorDarkOrange
+		case tSendSnapshot:
+			return tColorGold
+		case tReceiveSnapshot:
+			return tColorOrange
 		}
 	}
 	return ""
