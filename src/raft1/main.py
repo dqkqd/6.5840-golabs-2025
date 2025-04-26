@@ -35,6 +35,7 @@ class Command(str, enum.Enum):
     TestBasicAgree3B = "TestBasicAgree3B"
     TestBackup3B = "TestBackup3B"
     TestFigure8Unreliable3C = "TestFigure8Unreliable3C"
+    TestSnapshotBasic3D = "TestSnapshotBasic3D"
     Test3A = "3A"
     Test3B = "3B"
     Test3C = "3C"
