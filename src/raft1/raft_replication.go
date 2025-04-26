@@ -60,9 +60,20 @@ loop:
 
 // handle returned append entries
 // return the nextIndex to retry, or finished to indicate we shouldn't send out more any rpc
-func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (finished bool) {
+func (rf *Raft) handleAppendEntriesReply(server int, rawargs *AppendEntriesArgs, rawreply *AppendEntriesReply) (finished bool) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	args := *rawargs
+	reply := *rawreply
+	args.PrevLogIndex -= rf.snapshotOffset()
+	args.LeaderCommit -= rf.snapshotOffset()
+	if reply.XIndex != -1 {
+		reply.XIndex -= rf.snapshotOffset()
+	}
+	if reply.XLen != -1 {
+		reply.XLen -= rf.snapshotOffset()
+	}
+
 	DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), handle append entries", rf.me, args.Term, rf.state, server, reply.Term)
 
 	// the reply term doesn't match current term or args term
@@ -89,9 +100,9 @@ func (rf *Raft) handleAppendEntriesReply(server int, args *AppendEntriesArgs, re
 
 	// can be sure that current term, reply term, and args term match
 	if reply.Success {
-		return rf.handleSuccessAppendEntries(server, args, reply)
+		return rf.handleSuccessAppendEntries(server, &args, &reply)
 	} else {
-		return rf.handleFailedAppendEntries(server, args, reply)
+		return rf.handleFailedAppendEntries(server, &args, &reply)
 	}
 }
 
@@ -182,10 +193,10 @@ func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
 	return AppendEntriesArgs{
 		Term:         rf.currentTerm,
 		LeaderId:     rf.me,
-		PrevLogIndex: at - 1,
+		PrevLogIndex: at - 1 + rf.snapshotOffset(),
 		PrevLogTerm:  rf.log[at-1].Term,
 		Entries:      entries,
-		LeaderCommit: rf.commitIndex,
+		LeaderCommit: rf.commitIndex + rf.snapshotOffset(),
 	}
 }
 

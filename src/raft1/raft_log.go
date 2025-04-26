@@ -12,6 +12,7 @@ const (
 type raftLogEntry struct {
 	Command      any          // state machine command
 	CommandIndex int          // index of the log in state machine (ignoring no-op entry)
+	LogIndex     int          // the real log index without compaction
 	Term         int          // term number
 	LogEntryType logEntryType // whether this is no-op entry or normal entry from client
 }

@@ -48,6 +48,7 @@ type Raft struct {
 	currentTerm int     // latest term server has seen (initialized to 0 on first boot, increase monotonically)
 	votedFor    int     // candidateId that received vote in current term (or `-1` if none)
 	log         raftLog // log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
+	snapshot    []byte  // snapshot for log compaction
 
 	// Volatile state on all servers
 	commitIndex int // index of highest log entry known to be committed (initialized to 0, increase monotinically)
@@ -107,7 +108,7 @@ func (rf *Raft) persist() {
 		log.Fatalf("Cannot persist log")
 	}
 	raftstate := w.Bytes()
-	rf.persister.Save(raftstate, nil)
+	rf.persister.Save(raftstate, rf.snapshot)
 }
 
 // restore previously persisted state.
@@ -156,8 +157,47 @@ func (rf *Raft) PersistBytes() int {
 // all info up to and including index. this means the
 // service no longer needs the log through (and including)
 // that index. Raft should now trim its log as much as possible.
-func (rf *Raft) Snapshot(index int, snapshot []byte) {
+func (rf *Raft) Snapshot(commandIndex int, snapshot []byte) {
 	// Your code here (3D).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	DPrintf(tSnapshot, "S%d(%d,%v) receive snapshot for commandIndex=%d", rf.me, rf.commitIndex, rf.state, commandIndex)
+
+	if rf.killed() {
+		return
+	}
+
+	// TODO: binary search
+	logEntryIndex := len(rf.log) - 1
+	for logEntryIndex >= 0 {
+		if rf.log[logEntryIndex].CommandIndex == commandIndex {
+			break
+		}
+		logEntryIndex--
+	}
+	if logEntryIndex == -1 {
+		log.Fatal("invalid snapshot")
+	}
+	oldSnapshotOffset := rf.snapshotOffset()
+	rf.log = rf.log[logEntryIndex:]
+	rf.log[0].LogEntryType = noOpLogEntry // avoid applying duplicated values
+	rf.snapshot = snapshot
+
+	// all the old index should be shifted with the new snapshot offset
+	offset := rf.snapshotOffset() - oldSnapshotOffset
+	if offset <= 0 {
+		log.Fatalf("invalid offset: %d\n", offset)
+	}
+	rf.commitIndex = max(0, rf.commitIndex-offset)
+	rf.lastApplied = max(0, rf.lastApplied-offset)
+	for i := range rf.matchIndex {
+		rf.matchIndex[i] = max(0, rf.matchIndex[i]-offset)
+	}
+	for i := range rf.nextIndex {
+		rf.nextIndex[i] = max(0, rf.nextIndex[i]-offset)
+	}
+
+	rf.persist()
 }
 
 type AppendEntriesArgs struct {
@@ -197,10 +237,23 @@ func (args AppendEntriesArgs) Format(f fmt.State, c rune) {
 	}
 }
 
-func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+func (rf *Raft) AppendEntries(rawargs *AppendEntriesArgs, reply *AppendEntriesReply) {
 	// Your code here (3A, 3B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
+	args := *rawargs
+	// Offsetting the index before and after
+	args.PrevLogIndex -= rf.snapshotOffset()
+	args.LeaderCommit -= rf.snapshotOffset()
+	defer func() {
+		if reply.XIndex != -1 {
+			reply.XIndex += rf.snapshotOffset()
+		}
+		if reply.XLen != -1 {
+			reply.XLen += rf.snapshotOffset()
+		}
+	}()
 
 	// reply's default value
 	reply.XTerm = -1
@@ -316,10 +369,14 @@ type RequestVoteReply struct {
 }
 
 // example RequestVote RPC handler.
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+func (rf *Raft) RequestVote(rawargs *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
+	args := *rawargs
+	// Offsetting the index
+	args.LastLogIndex -= rf.snapshotOffset()
 
 	DPrintf(tVote, "S%d(%d,%v) <- S%d(%d), receive request vote", rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term)
 
@@ -344,10 +401,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		lastLogTerm := rf.log[lastLogIndex].Term
 		if args.LastLogTerm > lastLogTerm || (args.LastLogTerm == lastLogTerm && args.LastLogIndex >= lastLogIndex) {
 			DPrintf(tVote,
-				"S%d(%d,%v) <- S%d(%d), accept (term, index): S%d(%d, %d) <= S%d(%d, %d)",
+				"S%d(%d,%v) <- S%d(%d), accept (term, index): S%d(%d, %d, rawIndex=%d) <= S%d(%d, %d, rawIndex=%d)",
 				rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term,
-				rf.me, lastLogTerm, lastLogIndex,
-				args.CandidateId, args.LastLogTerm, args.LastLogIndex,
+				rf.me, lastLogTerm, lastLogIndex, lastLogIndex+rf.snapshotOffset(),
+				args.CandidateId, args.LastLogTerm, args.LastLogIndex, rawargs.LastLogIndex,
 			)
 
 			// then we should vote
@@ -360,9 +417,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.VoteGranted = true
 		} else {
 			DPrintf(tVote,
-				"S%d(%d,%v) <- S%d(%d), reject (term, index): S%d(%d, %d) > S%d(%d, %d)",
+				"S%d(%d,%v) <- S%d(%d), reject (term, index): S%d(%d, %d, rawIndex=%d) > S%d(%d, %d, rawIndex=%d)",
 				rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term,
-				rf.me, lastLogTerm, lastLogIndex, args.CandidateId, args.LastLogTerm, args.LastLogIndex,
+				rf.me, lastLogTerm, lastLogIndex, lastLogIndex+rf.snapshotOffset(),
+				args.CandidateId, args.LastLogTerm, args.LastLogIndex, rawargs.LastLogIndex,
 			)
 		}
 	} else {
@@ -448,7 +506,12 @@ func (rf *Raft) becomeLeader() {
 	}
 
 	// put an no-op entry into the log
-	rf.log = append(rf.log, raftLogEntry{CommandIndex: rf.log[len(rf.log)-1].CommandIndex, Term: rf.currentTerm, LogEntryType: noOpLogEntry})
+	rf.log = append(rf.log, raftLogEntry{
+		CommandIndex: rf.log[len(rf.log)-1].CommandIndex,
+		LogIndex:     rf.log[len(rf.log)-1].LogIndex + 1,
+		Term:         rf.currentTerm,
+		LogEntryType: noOpLogEntry,
+	})
 	rf.persist()
 	// trigger heartbeat now
 	rf.heartbeatTrigger <- true
@@ -477,6 +540,10 @@ func (rf *Raft) changeState(state serverState) {
 		DPrintf(tStatus, "S%d(%d,%v), change state to %v", rf.me, rf.currentTerm, rf.state, state)
 		rf.state = state
 	}
+}
+
+func (rf *Raft) snapshotOffset() int {
+	return rf.log[0].LogIndex
 }
 
 func (rf *Raft) heartbeat() {
@@ -523,7 +590,12 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	}
 
 	// append the log
-	entry := raftLogEntry{Command: command, CommandIndex: index, Term: term, LogEntryType: clientLogEntry}
+	entry := raftLogEntry{
+		Command:      command,
+		CommandIndex: index,
+		LogIndex:     rf.log[len(rf.log)-1].LogIndex + 1,
+		Term:         term, LogEntryType: clientLogEntry,
+	}
 	rf.log = append(rf.log, entry)
 	rf.persist()
 
@@ -636,7 +708,12 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// rafg log is 1-indexed, but we start with an entry at term 0
 	rf.log = make(raftLog, 0)
-	rf.log = append(rf.log, raftLogEntry{CommandIndex: 0, Term: 0, LogEntryType: noOpLogEntry})
+	rf.log = append(rf.log, raftLogEntry{
+		CommandIndex: 0,
+		LogIndex:     0,
+		Term:         0,
+		LogEntryType: noOpLogEntry,
+	})
 
 	// initialize election and heartbeat timeout channel
 	rf.heartbeatTrigger = make(chan bool)
