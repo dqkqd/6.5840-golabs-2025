@@ -83,8 +83,6 @@ def run_command_sequence(command: LiteralString) -> None:
 
 def run_command_sequence_timeout(command: LiteralString, timeout: int):
     output_file = output_dir() / uuid4().hex
-    print(f"Output file: {output_file}")
-
     with subprocess.Popen(
         command.split(" "), stdout=output_file.open("w"), start_new_session=True
     ) as process:
