@@ -9,7 +9,7 @@ func (rf *Raft) applier() {
 	for !rf.killed() {
 		<-rf.commitIndexChangedCh
 
-		logs := make([]raftLog, 0)
+		logs := make(raftLog, 0)
 		rf.mu.Lock()
 		if rf.lastApplied < rf.commitIndex {
 			logs = rf.log[rf.lastApplied+1 : rf.commitIndex+1]

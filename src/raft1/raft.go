@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -46,9 +45,9 @@ type Raft struct {
 	// state a Raft server must maintain.
 
 	// Persistent state on all servers
-	currentTerm int       // latest term server has seen (initialized to 0 on first boot, increase monotonically)
-	votedFor    int       // candidateId that received vote in current term (or `-1` if none)
-	log         []raftLog // log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
+	currentTerm int     // latest term server has seen (initialized to 0 on first boot, increase monotonically)
+	votedFor    int     // candidateId that received vote in current term (or `-1` if none)
+	log         raftLog // log entries; each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 
 	// Volatile state on all servers
 	commitIndex int // index of highest log entry known to be committed (initialized to 0, increase monotinically)
@@ -134,7 +133,7 @@ func (rf *Raft) readPersist(data []byte) {
 
 	var currentTerm int
 	var votedFor int
-	var rlog []raftLog
+	var rlog raftLog
 	if d.Decode(&currentTerm) != nil ||
 		d.Decode(&votedFor) != nil ||
 		d.Decode(&rlog) != nil {
@@ -162,12 +161,12 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 type AppendEntriesArgs struct {
-	Term         int       // leader's term
-	LeaderId     int       // so follower can redirect clients
-	PrevLogIndex int       // index of log entry immediately preceding new ones
-	PrevLogTerm  int       // term of `PrevLogIndex` entry
-	Entries      []raftLog // log entries to store (empty for heartbeat; may send more than one for efficiency)
-	LeaderCommit int       // leader's `commitIndex`
+	Term         int     // leader's term
+	LeaderId     int     // so follower can redirect clients
+	PrevLogIndex int     // index of log entry immediately preceding new ones
+	PrevLogTerm  int     // term of `PrevLogIndex` entry
+	Entries      raftLog // log entries to store (empty for heartbeat; may send more than one for efficiency)
+	LeaderCommit int     // leader's `commitIndex`
 }
 
 type AppendEntriesReply struct {
@@ -183,7 +182,7 @@ func (args AppendEntriesArgs) Format(f fmt.State, c rune) {
 	switch c {
 	case 'v':
 		if f.Flag('+') {
-			lastEntries := []raftLog{}
+			lastEntries := make(raftLog, 0)
 			if len(args.Entries) > 0 {
 				lastEntries = append(lastEntries, args.Entries[len(args.Entries)-1])
 			}
@@ -246,7 +245,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	xTerm := rf.log[args.PrevLogIndex].Term
 	if xTerm != args.PrevLogTerm {
 		reply.XTerm = xTerm
-		reply.XIndex = rf.findFirstIndexWithTerm(reply.XTerm)
+		reply.XIndex = rf.log.findFirstIndexWithTerm(reply.XTerm)
 		DPrintf(tReceiveAppend,
 			"S%d(%d,%v) <- S%d(%d), append reject, conflict term, reply=%+v",
 			rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, reply,
@@ -413,17 +412,6 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	return ok
 }
 
-func (rf *Raft) findFirstIndexWithTerm(term int) int {
-	return sort.Search(len(rf.log), func(i int) bool {
-		return rf.log[i].Term >= term
-	})
-}
-
-func (rf *Raft) findLastIndexWithTerm(term int) int {
-	// find the first index of term + 1, then subtract by 1
-	return rf.findFirstIndexWithTerm(term+1) - 1
-}
-
 // change term based on Rule for All Servers,
 // lock must not be hold by caller
 func (rf *Raft) maybeChangeTerm(term int) {
@@ -460,7 +448,7 @@ func (rf *Raft) becomeLeader() {
 	}
 
 	// put an no-op entry into the log
-	rf.log = append(rf.log, raftLog{CommandIndex: rf.log[len(rf.log)-1].CommandIndex, Term: rf.currentTerm, LogEntryType: noOpLogEntry})
+	rf.log = append(rf.log, raftLogEntry{CommandIndex: rf.log[len(rf.log)-1].CommandIndex, Term: rf.currentTerm, LogEntryType: noOpLogEntry})
 	rf.persist()
 	// trigger heartbeat now
 	rf.heartbeatTrigger <- true
@@ -535,7 +523,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	}
 
 	// append the log
-	entry := raftLog{Command: command, CommandIndex: index, Term: term, LogEntryType: clientLogEntry}
+	entry := raftLogEntry{Command: command, CommandIndex: index, Term: term, LogEntryType: clientLogEntry}
 	rf.log = append(rf.log, entry)
 	rf.persist()
 
@@ -647,8 +635,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.lastApplied = 0
 
 	// rafg log is 1-indexed, but we start with an entry at term 0
-	rf.log = []raftLog{}
-	rf.log = append(rf.log, raftLog{CommandIndex: 0, Term: 0, LogEntryType: noOpLogEntry})
+	rf.log = make(raftLog, 0)
+	rf.log = append(rf.log, raftLogEntry{CommandIndex: 0, Term: 0, LogEntryType: noOpLogEntry})
 
 	// initialize election and heartbeat timeout channel
 	rf.heartbeatTrigger = make(chan bool)

@@ -151,7 +151,7 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 	if reply.XTerm != -1 && reply.XIndex != -1 {
 		// conflicting term
 
-		lastXTermIndex := rf.findLastIndexWithTerm(reply.XTerm)
+		lastXTermIndex := rf.log.findLastIndexWithTerm(reply.XTerm)
 
 		if lastXTermIndex >= 0 && rf.log[lastXTermIndex].Term == reply.XTerm {
 			// leader has XTerm
@@ -176,7 +176,7 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 
 // create appendEntriesArgs at certain index
 func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
-	entries := make([]raftLog, len(rf.log[at:]))
+	entries := make(raftLog, len(rf.log[at:]))
 	copy(entries, rf.log[at:])
 
 	return AppendEntriesArgs{
@@ -210,7 +210,7 @@ func (rf *Raft) setCommitIndexAsMajorityReplicatedIndex() {
 	// only check the largest `n` such that `rf.log[n].Term == currentTerm`,
 	// and since we don't search for index that have already committed,
 	// the lower bound should also be higher than commitIndex
-	lastCurrentTermIndex := rf.findLastIndexWithTerm(rf.currentTerm)
+	lastCurrentTermIndex := rf.log.findLastIndexWithTerm(rf.currentTerm)
 
 	n = min(n, lastCurrentTermIndex)
 	if n > rf.commitIndex && rf.log[n].Term == rf.currentTerm {
