@@ -159,11 +159,6 @@ func (rf *Raft) PersistBytes() int {
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(commandIndex int, snapshot []byte) {
 	// Your code here (3D).
-	DPrintf(tSnapshot, "S%d(%d,%v) receive snapshot for commandIndex=%d", rf.me, rf.commitIndex, rf.state, commandIndex)
-
-	if rf.killed() {
-		return
-	}
 	rf.lock("Snapshot")
 	defer rf.unlock("Snapshot")
 
@@ -198,6 +193,11 @@ func (rf *Raft) Snapshot(commandIndex int, snapshot []byte) {
 	}
 
 	rf.persist()
+
+	DPrintf(tSnapshot,
+		"S%d(%d,%v) snapshot for commandIndex=%d, offset=%d",
+		rf.me, rf.currentTerm, rf.state, commandIndex, rf.snapshotOffset(),
+	)
 }
 
 type AppendEntriesArgs struct {
