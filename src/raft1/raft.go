@@ -191,10 +191,10 @@ func (rf *Raft) Snapshot(commandIndex int, snapshot []byte) {
 	rf.commitIndex = max(0, rf.commitIndex-offset)
 	rf.lastApplied = max(0, rf.lastApplied-offset)
 	for i := range rf.matchIndex {
-		rf.matchIndex[i] = max(0, rf.matchIndex[i]-offset)
+		rf.matchIndex[i] = rf.matchIndex[i] - offset
 	}
 	for i := range rf.nextIndex {
-		rf.nextIndex[i] = max(0, rf.nextIndex[i]-offset)
+		rf.nextIndex[i] = rf.nextIndex[i] - offset
 	}
 
 	rf.persist()
