@@ -20,8 +20,8 @@ func (t *electionRecordTimer) refresh(server int, term int) {
 }
 
 func (rf *Raft) elect() {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("elect")
+	defer rf.unlock("elect")
 
 	if !rf.shouldStartElection() {
 		return
@@ -57,10 +57,10 @@ func (rf *Raft) sendVotes(voteCh chan<- requestVoteReplyWithServerId, args Reque
 		if server != rf.me {
 			go func() {
 				for !rf.killed() {
-					rf.mu.Lock()
+					rf.lock("sendVotes")
 					state := rf.state
 					term := rf.currentTerm
-					rf.mu.Unlock()
+					rf.unlock("sendVotes")
 
 					if state != Candidate {
 						DPrintf(tVote, "S%d(%d,%v) -> S%d(%d), do not send request vote, not a candidate", rf.me, args.Term, state, server, args.Term)
@@ -115,8 +115,8 @@ func (rf *Raft) collectVotes(voteCh <-chan requestVoteReplyWithServerId, electio
 // handle request vote reply from server
 // return the total votes and whether this election should be stopped
 func (rf *Raft) handleRequestVoteReply(electionTerm int, server int, reply *RequestVoteReply, totalVotes int) (nextTotalVotes int, finished bool) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("handleRequestVoteReply")
+	defer rf.unlock("handleRequestVoteReply")
 
 	DPrintf(tVote,
 		"S%d(%d,%v) -> S%d(%d), received request vote reply %+v for election %d",

@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
@@ -13,21 +14,21 @@ func (rf *Raft) replicate(server int) {
 
 	defer func() {
 		// mark `replicating` as false so other process can run
-		rf.mu.Lock()
+		rf.lock("replicating[server]=false")
 		rf.replicating[server] = false
-		rf.mu.Unlock()
+		rf.unlock("replicating[server]=false")
 	}()
 
 loop:
 	for !rf.killed() {
 
 		// do not send append tries if we are not leader
-		rf.mu.Lock()
+		rf.lock(fmt.Sprintf("replicate %d", server))
 		state := rf.state
 		// make sure nextIndex does not exceed log length
 		rf.nextIndex[server] = min(rf.nextIndex[server], len(rf.log))
 		args := rf.appendEntriesArgs(rf.nextIndex[server])
-		rf.mu.Unlock()
+		rf.unlock(fmt.Sprintf("replicate %d", server))
 
 		if state != Leader {
 			DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d,-), do not send append entries", rf.me, args.Term, state, server, args.Term)
@@ -61,8 +62,8 @@ loop:
 // handle returned append entries
 // return the nextIndex to retry, or finished to indicate we shouldn't send out more any rpc
 func (rf *Raft) handleAppendEntriesReply(server int, rawargs *AppendEntriesArgs, rawreply *AppendEntriesReply) (finished bool) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("handleAppendEntriesReply")
+	defer rf.unlock("handleAppendEntriesReply")
 	args := *rawargs
 	reply := *rawreply
 	args.PrevLogIndex -= rf.snapshotOffset()
@@ -113,8 +114,8 @@ func (rf *Raft) canReplicate(server int) bool {
 	}
 
 	// check whether another process is replicating
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("canReplicate")
+	defer rf.unlock("canReplicate")
 	if rf.replicating[server] {
 		DPrintf(tSendAppend, "S%d(-,%v) -> S%d(-), already replicating", rf.me, rf.state, server)
 		return false

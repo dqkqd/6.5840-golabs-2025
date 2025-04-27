@@ -10,12 +10,13 @@ func (rf *Raft) applier() {
 		<-rf.commitIndexChangedCh
 
 		logs := make(raftLog, 0)
-		rf.mu.Lock()
+
+		rf.lock("applier")
 		if rf.lastApplied < rf.commitIndex {
 			logs = rf.log[rf.lastApplied+1 : rf.commitIndex+1]
 			rf.lastApplied = rf.commitIndex
 		}
-		rf.mu.Unlock()
+		rf.unlock("applier")
 
 		for _, log := range logs {
 			switch log.LogEntryType {

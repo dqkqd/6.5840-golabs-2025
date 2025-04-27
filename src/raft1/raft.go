@@ -76,8 +76,8 @@ type Raft struct {
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
 	// Your code here (3A).
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("GetState")
+	defer rf.unlock("GetState")
 	term := rf.currentTerm
 	isleader := rf.state == Leader
 
@@ -148,8 +148,8 @@ func (rf *Raft) readPersist(data []byte) {
 
 // how many bytes in Raft's persisted log?
 func (rf *Raft) PersistBytes() int {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("PersistBytes")
+	defer rf.unlock("PersistBytes")
 	return rf.persister.RaftStateSize()
 }
 
@@ -159,13 +159,13 @@ func (rf *Raft) PersistBytes() int {
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(commandIndex int, snapshot []byte) {
 	// Your code here (3D).
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
 	DPrintf(tSnapshot, "S%d(%d,%v) receive snapshot for commandIndex=%d", rf.me, rf.commitIndex, rf.state, commandIndex)
 
 	if rf.killed() {
 		return
 	}
+	rf.lock("Snapshot")
+	defer rf.unlock("Snapshot")
 
 	// TODO: binary search
 	logEntryIndex := len(rf.log) - 1
@@ -239,8 +239,8 @@ func (args AppendEntriesArgs) Format(f fmt.State, c rune) {
 
 func (rf *Raft) AppendEntries(rawargs *AppendEntriesArgs, reply *AppendEntriesReply) {
 	// Your code here (3A, 3B).
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("AppendEntries")
+	defer rf.unlock("AppendEntries")
 
 	args := *rawargs
 	// Offsetting the index before and after
@@ -371,8 +371,8 @@ type RequestVoteReply struct {
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(rawargs *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("RequestVote")
+	defer rf.unlock("RequestVote")
 
 	args := *rawargs
 	// Offsetting the index
@@ -547,8 +547,8 @@ func (rf *Raft) snapshotOffset() int {
 }
 
 func (rf *Raft) heartbeat() {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("heartbeat")
+	defer rf.unlock("heartbeat")
 
 	// only leader can send heart beat
 	if rf.state != Leader {
@@ -578,8 +578,8 @@ func (rf *Raft) heartbeat() {
 func (rf *Raft) Start(command any) (int, int, bool) {
 	// Your code here (3B).
 
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.lock("Start")
+	defer rf.unlock("Start")
 
 	index := rf.log[len(rf.log)-1].CommandIndex + 1
 	term := rf.currentTerm
@@ -624,6 +624,16 @@ func (rf *Raft) Kill() {
 func (rf *Raft) killed() bool {
 	z := atomic.LoadInt32(&rf.dead)
 	return z == 1
+}
+
+func (rf *Raft) lock(name string) {
+	rf.mu.Lock()
+	DPrintf(tStatus, "S%d(%d) lock, %s", rf.me, rf.currentTerm, name)
+}
+
+func (rf *Raft) unlock(name string) {
+	DPrintf(tStatus, "S%d(%d) unlock, %s", rf.me, rf.currentTerm, name)
+	rf.mu.Unlock()
 }
 
 // do not burn cpu cycle
