@@ -162,6 +162,9 @@ func (rf *Raft) Snapshot(commandIndex int, snapshot []byte) {
 	// Your code here (3D).
 	rf.lock("Snapshot")
 	defer rf.unlock("Snapshot")
+	if rf.killed() {
+		return
+	}
 
 	// TODO: binary search
 	logEntryIndex := len(rf.log) - 1
