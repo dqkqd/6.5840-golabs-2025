@@ -196,7 +196,7 @@ func (rf *Raft) handleInstallSnapshotReply(server int, rawargs *InstallSnapshotA
 	}
 
 	args := *rawargs
-
+	args.LastIncludedLogIndex = rf.toCompactedIndex(args.LastIncludedLogIndex)
 	rf.matchIndex[server] = args.LastIncludedLogIndex
 	rf.nextIndex[server] = rf.matchIndex[server] + 1
 
