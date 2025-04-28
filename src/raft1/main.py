@@ -98,13 +98,10 @@ def run_command_sequence_timeout(command: LiteralString, timeout: int):
         has_error = any(map(failed, f))
 
     if has_error:
-        # remove unused files
-        files = list(output_dir().iterdir())
-        for file in files:
-            if file == output_file:
-                continue
-            file.unlink()
         raise CommandError(f"error:\n{output_file}")
+    else:
+        # remove completed files
+        output_file.unlink()
 
 
 @app.command()
