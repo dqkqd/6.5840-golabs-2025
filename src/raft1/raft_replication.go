@@ -123,33 +123,6 @@ func (rf *Raft) replicateInstallSnapshot(server int, state serverState, args *In
 	}
 }
 
-func (rf *Raft) handleTermMismatchReplicateReply(server int, argsTerm, replyTerm int, topic logTopic) (finished bool) {
-	// continue if the term match
-	if rf.currentTerm == argsTerm && rf.currentTerm == replyTerm {
-		return false
-	}
-
-	// the reply term doesn't match current term or args term
-	// we check if we should change the term and then abort the handling
-	DPrintf(topic, "S%d(%d,%v) -> S%d(%d), replicating failed, term changed, currentTerm=%d", rf.me, argsTerm, rf.state, server, replyTerm, rf.currentTerm)
-
-	// Rules for Servers: lower term, change to follower
-	// term has been changed from peer, change to follower and return immediately
-	if rf.currentTerm < replyTerm {
-		rf.maybeChangeTerm(replyTerm)
-	}
-	// otherwise, the reply is from previous round
-	// it might be staled and incorrect. Should retry
-
-	// only continue if we are still the leader
-	if rf.state != Leader {
-		DPrintf(topic, "S%d(%d,%v) -> S%d(%d), replicating failed, not a leader", rf.me, argsTerm, rf.state, server, replyTerm)
-		return true
-	} else {
-		return false
-	}
-}
-
 // handle returned append entries
 // return the nextIndex to retry, or finished to indicate we shouldn't send out more any rpc
 func (rf *Raft) handleAppendEntriesReply(server int, rawargs *AppendEntriesArgs, rawreply *AppendEntriesReply) (finished bool) {
@@ -213,26 +186,6 @@ func (rf *Raft) handleInstallSnapshotReply(server int, rawargs *InstallSnapshotA
 	return finished
 }
 
-func (rf *Raft) canReplicate(server int) bool {
-	if rf.me == server {
-		DPrintf(tSendAppend, "S%d(-), do not send append entries to self", rf.me)
-		return false
-	}
-
-	// check whether another process is replicating
-	rf.lock("canReplicate")
-	defer rf.unlock("canReplicate")
-	if rf.replicating[server] {
-		DPrintf(tSendAppend, "S%d(-,%v) -> S%d(-), already replicating", rf.me, rf.state, server)
-		return false
-	} else {
-		// make this as true, so other process cannot run
-		rf.replicating[server] = true
-		DPrintf(tSendAppend, "S%d(-,%v) -> S%d(-), start replicating", rf.me, rf.state, server)
-		return true
-	}
-}
-
 // handle entries that was successfully sent
 // return true if all the log are replicated
 // otherwise, return false
@@ -288,6 +241,53 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 
 	// always return false indicating that we have not finished
 	return false
+}
+
+func (rf *Raft) handleTermMismatchReplicateReply(server int, argsTerm, replyTerm int, topic logTopic) (finished bool) {
+	// continue if the term match
+	if rf.currentTerm == argsTerm && rf.currentTerm == replyTerm {
+		return false
+	}
+
+	// the reply term doesn't match current term or args term
+	// we check if we should change the term and then abort the handling
+	DPrintf(topic, "S%d(%d,%v) -> S%d(%d), replicating failed, term changed, currentTerm=%d", rf.me, argsTerm, rf.state, server, replyTerm, rf.currentTerm)
+
+	// Rules for Servers: lower term, change to follower
+	// term has been changed from peer, change to follower and return immediately
+	if rf.currentTerm < replyTerm {
+		rf.maybeChangeTerm(replyTerm)
+	}
+	// otherwise, the reply is from previous round
+	// it might be staled and incorrect. Should retry
+
+	// only continue if we are still the leader
+	if rf.state != Leader {
+		DPrintf(topic, "S%d(%d,%v) -> S%d(%d), replicating failed, not a leader", rf.me, argsTerm, rf.state, server, replyTerm)
+		return true
+	} else {
+		return false
+	}
+}
+
+func (rf *Raft) canReplicate(server int) bool {
+	if rf.me == server {
+		DPrintf(tSendAppend, "S%d(-), do not send append entries to self", rf.me)
+		return false
+	}
+
+	// check whether another process is replicating
+	rf.lock("canReplicate")
+	defer rf.unlock("canReplicate")
+	if rf.replicating[server] {
+		DPrintf(tSendAppend, "S%d(-,%v) -> S%d(-), already replicating", rf.me, rf.state, server)
+		return false
+	} else {
+		// make this as true, so other process cannot run
+		rf.replicating[server] = true
+		DPrintf(tSendAppend, "S%d(-,%v) -> S%d(-), start replicating", rf.me, rf.state, server)
+		return true
+	}
 }
 
 // create appendEntriesArgs at certain index
