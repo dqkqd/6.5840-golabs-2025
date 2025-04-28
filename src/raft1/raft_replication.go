@@ -167,23 +167,13 @@ func (rf *Raft) handleInstallSnapshotReply(server int, rawargs *InstallSnapshotA
 	if finished {
 		return
 	}
-
 	args := *rawargs
 	args.LastIncludedLogIndex = rf.toCompactedIndex(args.LastIncludedLogIndex)
+
+	// update nextIndex and matchIndex
 	rf.matchIndex[server] = args.LastIncludedLogIndex
 	rf.nextIndex[server] = rf.matchIndex[server] + 1
-
-	rf.setCommitIndexAsMajorityReplicatedIndex()
-
-	finished = rf.nextIndex[server] == len(rf.log)
-	if !finished {
-		DPrintf(tSendSnapshot,
-			"S%d(%d,%v) -> S%d(%d), len(log)=%d > nextIndex=%d, need another append entries round",
-			rf.me, args.Term, rf.state, server, rawreply.Term, len(rf.log), rf.nextIndex[server],
-		)
-	}
-
-	return finished
+	return rf.handleMatchIndexChanged(server, args.Term, rawreply.Term, tSendSnapshot)
 }
 
 // handle entries that was successfully sent
@@ -191,22 +181,10 @@ func (rf *Raft) handleInstallSnapshotReply(server int, rawargs *InstallSnapshotA
 // otherwise, return false
 func (rf *Raft) handleSuccessAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) (finished bool) {
 	DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), append entries succeeded", rf.me, args.Term, rf.state, server, reply.Term)
-
 	// update nextIndex and matchIndex
 	rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
 	rf.nextIndex[server] = rf.matchIndex[server] + 1
-
-	rf.setCommitIndexAsMajorityReplicatedIndex()
-
-	finished = rf.nextIndex[server] == len(rf.log)
-	if !finished {
-		DPrintf(tSendAppend,
-			"S%d(%d,%v) -> S%d(%d), len(log)=%d > nextIndex=%d, need another append entries round",
-			rf.me, args.Term, rf.state, server, reply.Term, len(rf.log), rf.nextIndex[server],
-		)
-	}
-
-	return finished
+	return rf.handleMatchIndexChanged(server, args.Term, reply.Term, tSendAppend)
 }
 
 // handle entries that was replied with failure, leader must change `nextIndex` and retry
@@ -268,6 +246,20 @@ func (rf *Raft) handleTermMismatchReplicateReply(server int, argsTerm, replyTerm
 	} else {
 		return false
 	}
+}
+
+func (rf *Raft) handleMatchIndexChanged(server int, argsTerm, replyTerm int, topic logTopic) (finished bool) {
+	rf.setCommitIndexAsMajorityReplicatedIndex()
+
+	finished = rf.nextIndex[server] == len(rf.log)
+	if !finished {
+		DPrintf(topic,
+			"S%d(%d,%v) -> S%d(%d), len(log)=%d > nextIndex=%d, need another append entries round",
+			rf.me, argsTerm, rf.state, server, replyTerm, len(rf.log), rf.nextIndex[server],
+		)
+	}
+
+	return finished
 }
 
 func (rf *Raft) canReplicate(server int) bool {
