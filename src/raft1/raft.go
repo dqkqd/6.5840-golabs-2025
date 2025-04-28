@@ -237,16 +237,17 @@ func (rf *Raft) AppendEntries(rawargs *AppendEntriesArgs, reply *AppendEntriesRe
 	rf.lock("AppendEntries")
 	defer rf.unlock("AppendEntries")
 
+	// Offsetting the args index
 	args := *rawargs
-	// Offsetting the index before and after
-	args.PrevLogIndex -= rf.snapshotOffset()
-	args.LeaderCommit -= rf.snapshotOffset()
+	args.PrevLogIndex = rf.toCompactedIndex(args.PrevLogIndex)
+	args.LeaderCommit = rf.toCompactedIndex(args.LeaderCommit)
+	// Offsetting the reply index before return
 	defer func() {
 		if reply.XIndex != -1 {
-			reply.XIndex += rf.snapshotOffset()
+			reply.XIndex = rf.toRawIndex(reply.XIndex)
 		}
 		if reply.XLen != -1 {
-			reply.XLen += rf.snapshotOffset()
+			reply.XLen = rf.toRawIndex(reply.XLen)
 		}
 	}()
 
@@ -372,9 +373,9 @@ func (rf *Raft) RequestVote(rawargs *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.lock("RequestVote")
 	defer rf.unlock("RequestVote")
 
-	args := *rawargs
 	// Offsetting the index
-	args.LastLogIndex -= rf.snapshotOffset()
+	args := *rawargs
+	args.LastLogIndex = rf.toCompactedIndex(args.LastLogIndex)
 
 	DPrintf(tVote, "S%d(%d,%v) <- S%d(%d), receive request vote", rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term)
 
@@ -399,10 +400,10 @@ func (rf *Raft) RequestVote(rawargs *RequestVoteArgs, reply *RequestVoteReply) {
 		lastLogTerm := rf.log[lastLogIndex].Term
 		if args.LastLogTerm > lastLogTerm || (args.LastLogTerm == lastLogTerm && args.LastLogIndex >= lastLogIndex) {
 			DPrintf(tVote,
-				"S%d(%d,%v) <- S%d(%d), accept (term, index): S%d(%d, %d, rawIndex=%d) <= S%d(%d, %d, rawIndex=%d)",
+				"S%d(%d,%v) <- S%d(%d), accept (term, index, rawIndex): S%d(%d, %d, %d) <= S%d(%d, %d, %d)",
 				rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term,
-				rf.me, lastLogTerm, lastLogIndex, lastLogIndex+rf.snapshotOffset(),
-				args.CandidateId, args.LastLogTerm, args.LastLogIndex, rawargs.LastLogIndex,
+				rf.me, lastLogTerm, lastLogIndex, rf.toRawIndex(lastLogIndex),
+				args.CandidateId, args.LastLogTerm, args.LastLogIndex, rf.toRawIndex(args.LastLogIndex),
 			)
 
 			// then we should vote
@@ -415,10 +416,10 @@ func (rf *Raft) RequestVote(rawargs *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.VoteGranted = true
 		} else {
 			DPrintf(tVote,
-				"S%d(%d,%v) <- S%d(%d), reject (term, index): S%d(%d, %d, rawIndex=%d) > S%d(%d, %d, rawIndex=%d)",
+				"S%d(%d,%v) <- S%d(%d), reject (term, index, rawIndex): S%d(%d, %d, %d) > S%d(%d, %d, %d)",
 				rf.me, rf.currentTerm, rf.state, args.CandidateId, args.Term,
-				rf.me, lastLogTerm, lastLogIndex, lastLogIndex+rf.snapshotOffset(),
-				args.CandidateId, args.LastLogTerm, args.LastLogIndex, rawargs.LastLogIndex,
+				rf.me, lastLogTerm, lastLogIndex, rf.toRawIndex(lastLogIndex),
+				args.CandidateId, args.LastLogTerm, args.LastLogIndex, rf.toRawIndex(args.LastLogIndex),
 			)
 		}
 	} else {
@@ -655,7 +656,29 @@ func (rf *Raft) changeState(state serverState) {
 // Remove entries in the log upto index.
 // Put a zombie entry at the index 0.
 func (rf *Raft) removeSnapshotLog(upto int, zombieEntry raftLogEntry) {
-	oldSnapshotOffset := rf.snapshotOffset()
+	// convert all the indexes to the real index before removing log entries
+	rf.commitIndex = rf.toRawIndex(rf.commitIndex)
+	rf.lastApplied = rf.toRawIndex(rf.lastApplied)
+	if len(rf.matchIndex) > 0 && len(rf.nextIndex) > 0 {
+		for i := range rf.peers {
+			rf.matchIndex[i] = rf.toRawIndex(rf.matchIndex[i])
+			rf.nextIndex[i] = rf.toRawIndex(rf.nextIndex[i])
+		}
+	}
+
+	// convert all the real index back to the compacted index after removing log entries
+	defer func() {
+		// commit index and last applied should never less than 0
+		// because we committed in the snapshot ourselves
+		rf.commitIndex = max(0, rf.toCompactedIndex(rf.commitIndex))
+		rf.lastApplied = max(0, rf.toCompactedIndex(rf.lastApplied))
+		if len(rf.matchIndex) > 0 && len(rf.nextIndex) > 0 {
+			for i := range rf.peers {
+				rf.matchIndex[i] = rf.toCompactedIndex(rf.matchIndex[i])
+				rf.nextIndex[i] = rf.toCompactedIndex(rf.nextIndex[i])
+			}
+		}
+	}()
 
 	newlog := make(raftLog, 0)
 	newlog = append(newlog, zombieEntry)
@@ -663,24 +686,18 @@ func (rf *Raft) removeSnapshotLog(upto int, zombieEntry raftLogEntry) {
 		newlog = append(newlog, rf.log[upto+1:]...)
 	}
 	rf.log = newlog
-
-	// all the old index should be shifted with the new snapshot offset
-	offset := rf.snapshotOffset() - oldSnapshotOffset
-	if offset <= 0 {
-		log.Fatalf("invalid offset: %d\n", offset)
-	}
-	rf.commitIndex = max(0, rf.commitIndex-offset)
-	rf.lastApplied = max(0, rf.lastApplied-offset)
-	for i := range rf.matchIndex {
-		rf.matchIndex[i] = rf.matchIndex[i] - offset
-	}
-	for i := range rf.nextIndex {
-		rf.nextIndex[i] = rf.nextIndex[i] - offset
-	}
 }
 
 func (rf *Raft) snapshotOffset() int {
 	return rf.log[0].LogIndex
+}
+
+func (rf *Raft) toRawIndex(index int) int {
+	return index + rf.snapshotOffset()
+}
+
+func (rf *Raft) toCompactedIndex(index int) int {
+	return index - rf.snapshotOffset()
 }
 
 func (rf *Raft) heartbeat() {

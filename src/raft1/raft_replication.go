@@ -160,15 +160,16 @@ func (rf *Raft) handleAppendEntriesReply(server int, rawargs *AppendEntriesArgs,
 		return
 	}
 
+	// Offsetting the index
 	args := *rawargs
 	reply := *rawreply
-	args.PrevLogIndex -= rf.snapshotOffset()
-	args.LeaderCommit -= rf.snapshotOffset()
+	args.PrevLogIndex = rf.toCompactedIndex(args.PrevLogIndex)
+	args.LeaderCommit = rf.toCompactedIndex(args.LeaderCommit)
 	if reply.XIndex != -1 {
-		reply.XIndex -= rf.snapshotOffset()
+		reply.XIndex = rf.toCompactedIndex(reply.XIndex)
 	}
 	if reply.XLen != -1 {
-		reply.XLen -= rf.snapshotOffset()
+		reply.XLen = rf.toCompactedIndex(reply.XLen)
 	}
 
 	DPrintf(tSendAppend,
@@ -293,14 +294,13 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
 	entries := make(raftLog, len(rf.log[at:]))
 	copy(entries, rf.log[at:])
-
 	return AppendEntriesArgs{
 		Term:         rf.currentTerm,
 		LeaderId:     rf.me,
-		PrevLogIndex: at - 1 + rf.snapshotOffset(),
+		PrevLogIndex: rf.toRawIndex(at - 1),
 		PrevLogTerm:  rf.log[at-1].Term,
 		Entries:      entries,
-		LeaderCommit: rf.commitIndex + rf.snapshotOffset(),
+		LeaderCommit: rf.toRawIndex(rf.commitIndex),
 	}
 }
 
@@ -311,7 +311,7 @@ func (rf *Raft) installSnapshotArgs() InstallSnapshotArgs {
 		Term:                     rf.currentTerm,
 		LeaderId:                 rf.me,
 		LastIncludedCommandIndex: rf.log[0].CommandIndex,
-		LastIncludedLogIndex:     rf.log[0].LogIndex,
+		LastIncludedLogIndex:     rf.toRawIndex(0),
 		LastIncludedTerm:         rf.log[0].Term,
 		Data:                     data,
 	}

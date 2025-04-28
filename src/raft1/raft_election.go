@@ -38,7 +38,7 @@ func (rf *Raft) elect() {
 	args := RequestVoteArgs{
 		Term:         rf.currentTerm,
 		CandidateId:  rf.me,
-		LastLogIndex: lastLogIndex + rf.snapshotOffset(),
+		LastLogIndex: rf.toRawIndex(lastLogIndex),
 		LastLogTerm:  rf.log[lastLogIndex].Term,
 	}
 
