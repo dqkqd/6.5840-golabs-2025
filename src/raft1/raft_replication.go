@@ -138,12 +138,8 @@ func (rf *Raft) handleAppendEntriesReply(server int, rawargs *AppendEntriesArgs,
 	reply := *rawreply
 	args.PrevLogIndex = rf.toCompactedIndex(args.PrevLogIndex)
 	args.LeaderCommit = rf.toCompactedIndex(args.LeaderCommit)
-	if reply.XIndex != -1 {
-		reply.XIndex = rf.toCompactedIndex(reply.XIndex)
-	}
-	if reply.XLen != -1 {
-		reply.XLen = rf.toCompactedIndex(reply.XLen)
-	}
+	reply.XIndex.Value = rf.toCompactedIndex(reply.XIndex.Value)
+	reply.XLen.Value = rf.toCompactedIndex(reply.XLen.Value)
 
 	DPrintf(tSendAppend,
 		"S%d(%d,%v) -> S%d(%d), handle append entries\n\targs=%+v\n\trawargs=%+v\n\treply=%+v\n\trawreply=%+v",
@@ -197,19 +193,19 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 		rf.me, args.Term, rf.state, server, reply.Term, args, reply,
 	)
 
-	if reply.XTerm != -1 && reply.XIndex != -1 {
+	if reply.XTerm.Some && reply.XIndex.Some {
 		// conflicting term
-		lastXTermIndex, found := rf.log.findLastIndexWithTerm(reply.XTerm)
+		lastXTermIndex, found := rf.log.findLastIndexWithTerm(reply.XTerm.Value)
 		if found {
 			// leader has XTerm
 			rf.nextIndex[server] = lastXTermIndex + 1
 		} else {
 			// leader doesn't have XTerm
-			rf.nextIndex[server] = reply.XIndex
+			rf.nextIndex[server] = reply.XIndex.Value
 		}
-	} else if reply.XLen != -1 {
+	} else if reply.XLen.Some {
 		// follower's log is too short
-		rf.nextIndex[server] = reply.XLen
+		rf.nextIndex[server] = reply.XLen.Value
 	}
 
 	DPrintf(tSendAppend,

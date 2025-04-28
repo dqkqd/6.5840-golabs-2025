@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+type OptionInt struct {
+	Value int
+	Some  bool
+}
+
 // Debugging
 var (
 	Debug      bool

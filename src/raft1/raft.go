@@ -204,9 +204,9 @@ type AppendEntriesReply struct {
 	Term    int  // currentTerm, for leader to update itself
 	Success bool // true if follower contained entry matching prevLogIndex and prevLogTerm
 	// optimization
-	XTerm  int // Term in the conflicting entry, -1 means empty
-	XIndex int // index of the first entry with that term, -1 means empty
-	XLen   int // follower's log length, -1 means empty
+	XTerm  OptionInt // Term in the conflicting entry
+	XIndex OptionInt // index of the first entry with that term
+	XLen   OptionInt // follower's log length
 }
 
 func (args AppendEntriesArgs) Format(f fmt.State, c rune) {
@@ -239,18 +239,14 @@ func (rf *Raft) AppendEntries(rawargs *AppendEntriesArgs, reply *AppendEntriesRe
 	args.LeaderCommit = rf.toCompactedIndex(args.LeaderCommit)
 	// Offsetting the reply index before return
 	defer func() {
-		if reply.XIndex != -1 {
-			reply.XIndex = rf.toRawIndex(reply.XIndex)
-		}
-		if reply.XLen != -1 {
-			reply.XLen = rf.toRawIndex(reply.XLen)
-		}
+		reply.XIndex.Value = rf.toRawIndex(reply.XIndex.Value)
+		reply.XLen.Value = rf.toRawIndex(reply.XLen.Value)
 	}()
 
 	// reply's default value
-	reply.XTerm = -1
-	reply.XIndex = -1
-	reply.XLen = -1
+	reply.XTerm = OptionInt{Some: false}
+	reply.XIndex = OptionInt{Some: false}
+	reply.XLen = OptionInt{Some: false}
 	reply.Success = false
 
 	DPrintf(tReceiveAppend,
@@ -282,7 +278,7 @@ func (rf *Raft) AppendEntries(rawargs *AppendEntriesArgs, reply *AppendEntriesRe
 	// if log doesn't contain entry at prevLogIndex whose term match prevLogTerm
 	if len(rf.log) <= args.PrevLogIndex {
 		// follower's log is too short
-		reply.XLen = len(rf.log)
+		reply.XLen = OptionInt{Value: len(rf.log), Some: true}
 		DPrintf(tReceiveAppend,
 			"S%d(%d,%v) <- S%d(%d), append reject, follower's log is too short, len(log)=%d",
 			rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, len(rf.log),
@@ -292,8 +288,9 @@ func (rf *Raft) AppendEntries(rawargs *AppendEntriesArgs, reply *AppendEntriesRe
 	// conflict term
 	xTerm := rf.log[args.PrevLogIndex].Term
 	if xTerm != args.PrevLogTerm {
-		reply.XTerm = xTerm
-		reply.XIndex, _ = rf.log.findFirstIndexWithTerm(reply.XTerm)
+		xIndex, _ := rf.log.findFirstIndexWithTerm(xTerm)
+		reply.XTerm = OptionInt{Value: xTerm, Some: true}
+		reply.XIndex = OptionInt{Value: xIndex, Some: true}
 		DPrintf(tReceiveAppend,
 			"S%d(%d,%v) <- S%d(%d), append reject, conflict term, reply=%+v",
 			rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, reply,
