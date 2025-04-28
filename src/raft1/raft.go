@@ -450,6 +450,7 @@ func (args InstallSnapshotArgs) Format(f fmt.State, c rune) {
 	}
 }
 
+// Handle snapshot rpc, treat this the same as append entries
 func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
 	rf.lock("InstallSnapshot")
 	defer rf.unlock("InstallSnapshot")
@@ -478,7 +479,6 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	rf.maybeChangeTerm(args.Term)
 
 	// record append entries timer
-	// TODO: timer
 	rf.lastAppendEntriesTime.refresh(args.LeaderId, args.Term)
 
 	reply.Term = args.Term
