@@ -167,21 +167,17 @@ func (rf *Raft) Snapshot(commandIndex int, snapshot []byte) {
 		return
 	}
 
-	// TODO: binary search
-	logEntryIndex := len(rf.log) - 1
-	for logEntryIndex >= 0 {
-		if rf.log[logEntryIndex].CommandIndex == commandIndex {
-			break
-		}
-		logEntryIndex--
-	}
-	if logEntryIndex == -1 {
+	// find the last entry with commandIndex.
+	entryIndex, found := rf.log.findLastCommandIndex(commandIndex)
+	if !found {
+		DPrintf(tSnapshot, "S%d(%d,%v), invalid commandIndex=%d", rf.me, rf.currentTerm, rf.state, commandIndex)
 		log.Fatal("invalid snapshot")
 	}
-	rf.removeSnapshotLog(logEntryIndex, raftLogEntry{
+
+	rf.removeSnapshotLog(entryIndex, raftLogEntry{
 		Command:      nil,
-		CommandIndex: rf.log[logEntryIndex].CommandIndex,
-		LogIndex:     rf.log[logEntryIndex].LogIndex,
+		CommandIndex: rf.log[entryIndex].CommandIndex,
+		LogIndex:     rf.log[entryIndex].LogIndex,
 		Term:         rf.currentTerm,
 		LogEntryType: noOpLogEntry,
 	})
@@ -506,14 +502,6 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, len(rf.snapshot),
 	)
 
-	// retain log entries if matching index with term is found
-	index := len(rf.log) - 1
-	for index >= 0 {
-		if rf.log[index].CommandIndex == args.LastIncludedCommandIndex {
-			break
-		}
-		index--
-	}
 	zombieEntry := raftLogEntry{
 		Command:      nil,
 		CommandIndex: args.LastIncludedCommandIndex,
@@ -521,10 +509,13 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 		Term:         args.LastIncludedTerm,
 		LogEntryType: noOpLogEntry,
 	}
-	if index >= 0 && rf.log[index].Term == args.LastIncludedTerm {
+	// retain log entries if matching index with term is found
+	index, found := rf.log.findLastCommandIndex(args.LastIncludedCommandIndex)
+	if found {
 		// retain the follow entries
 		rf.removeSnapshotLog(index, zombieEntry)
 	} else {
+		// discard the logs
 		rf.removeSnapshotLog(len(rf.log)-1, zombieEntry)
 	}
 

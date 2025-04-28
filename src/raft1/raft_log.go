@@ -3,6 +3,7 @@ package raft
 import (
 	"cmp"
 	"slices"
+	"sort"
 )
 
 type logEntryType int
@@ -34,6 +35,18 @@ func (r raftLog) findLastIndexWithTerm(term int) (int, bool) {
 	index -= 1
 
 	if index >= 0 && index < len(r) && r[index].Term == term {
+		return index, true
+	}
+	return index, false
+}
+
+func (r raftLog) findLastCommandIndex(commandIndex int) (int, bool) {
+	index := sort.Search(len(r), func(i int) bool {
+		return r[i].CommandIndex >= commandIndex+1
+	})
+	index -= 1
+
+	if index >= 0 && index < len(r) && r[index].CommandIndex == commandIndex {
 		return index, true
 	}
 	return index, false
