@@ -488,6 +488,15 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 
 	reply.Term = args.Term
 
+	// checking whether we receive an outdated snapshot
+	if args.LastIncludedCommandIndex <= rf.log[0].CommandIndex {
+		DPrintf(tReceiveSnapshot,
+			"S%d(%d,%v) <- S%d(%d), snapshot reject, receive and outdated snapshot, commandIndex=%d <= currentIndex=%d",
+			rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, args.LastIncludedCommandIndex, rf.log[0].CommandIndex,
+		)
+		return
+	}
+
 	rf.snapshot = make([]byte, len(args.Data))
 	copy(rf.snapshot, args.Data)
 	DPrintf(tReceiveSnapshot,
