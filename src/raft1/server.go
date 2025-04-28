@@ -150,7 +150,11 @@ func (rs *rfsrv) applierSnap(applyCh chan raftapi.ApplyMsg) {
 				}
 				e.Encode(xlog)
 				start := tester.GetAnnotateTimestamp()
-				rs.raft.Snapshot(m.CommandIndex, w.Bytes())
+				raft := rs.Raft()
+				if raft == nil {
+					return
+				}
+				raft.Snapshot(m.CommandIndex, w.Bytes())
 				details := fmt.Sprintf(
 					"snapshot created after applying the command at index %v",
 					m.CommandIndex)
