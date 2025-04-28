@@ -1,6 +1,9 @@
 package raft
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 type logEntryType int
 
@@ -19,13 +22,19 @@ type raftLogEntry struct {
 
 type raftLog []raftLogEntry
 
-func (r raftLog) findFirstIndexWithTerm(term int) int {
-	return sort.Search(len(r), func(i int) bool {
-		return r[i].Term >= term
+func (r raftLog) findFirstIndexWithTerm(term int) (int, bool) {
+	return slices.BinarySearchFunc(r, term, func(e raftLogEntry, term int) int {
+		return cmp.Compare(e.Term, term)
 	})
 }
 
-func (r raftLog) findLastIndexWithTerm(term int) int {
+func (r raftLog) findLastIndexWithTerm(term int) (int, bool) {
 	// find the first index of term + 1, then subtract by 1
-	return r.findFirstIndexWithTerm(term+1) - 1
+	index, _ := r.findFirstIndexWithTerm(term + 1)
+	index -= 1
+
+	if index >= 0 && index < len(r) && r[index].Term == term {
+		return index, true
+	}
+	return index, false
 }

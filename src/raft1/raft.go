@@ -296,7 +296,7 @@ func (rf *Raft) AppendEntries(rawargs *AppendEntriesArgs, reply *AppendEntriesRe
 	xTerm := rf.log[args.PrevLogIndex].Term
 	if xTerm != args.PrevLogTerm {
 		reply.XTerm = xTerm
-		reply.XIndex = rf.log.findFirstIndexWithTerm(reply.XTerm)
+		reply.XIndex, _ = rf.log.findFirstIndexWithTerm(reply.XTerm)
 		DPrintf(tReceiveAppend,
 			"S%d(%d,%v) <- S%d(%d), append reject, conflict term, reply=%+v",
 			rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, reply,
