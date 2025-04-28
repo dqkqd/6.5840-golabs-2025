@@ -39,6 +39,7 @@ class Command(str, enum.Enum):
     Test3A = "3A"
     Test3B = "3B"
     Test3C = "3C"
+    Test3D = "3D"
 
     def prepared_command(self, race: bool) -> LiteralString:
         command = f"go test -run {self.value}"
@@ -136,7 +137,6 @@ def sequence(
     race: bool = False,
     timeout: int | None = None,
 ):
-    shutil.rmtree(output_dir())
     if verbose:
         os.environ["DEBUG"] = "1"
 
