@@ -177,25 +177,15 @@ func (rf *Raft) Snapshot(commandIndex int, snapshot []byte) {
 	if logEntryIndex == -1 {
 		log.Fatal("invalid snapshot")
 	}
-	oldSnapshotOffset := rf.snapshotOffset()
-	rf.log = rf.log[logEntryIndex:]
-	rf.log[0].LogEntryType = noOpLogEntry // avoid applying duplicated values
+	rf.removeSnapshotLog(logEntryIndex, raftLogEntry{
+		Command:      nil,
+		CommandIndex: rf.log[logEntryIndex].CommandIndex,
+		LogIndex:     rf.log[logEntryIndex].LogIndex,
+		Term:         rf.currentTerm,
+		LogEntryType: noOpLogEntry,
+	})
+
 	rf.snapshot = snapshot
-
-	// all the old index should be shifted with the new snapshot offset
-	offset := rf.snapshotOffset() - oldSnapshotOffset
-	if offset <= 0 {
-		log.Fatalf("invalid offset: %d\n", offset)
-	}
-	rf.commitIndex = max(0, rf.commitIndex-offset)
-	rf.lastApplied = max(0, rf.lastApplied-offset)
-	for i := range rf.matchIndex {
-		rf.matchIndex[i] = rf.matchIndex[i] - offset
-	}
-	for i := range rf.nextIndex {
-		rf.nextIndex[i] = rf.nextIndex[i] - offset
-	}
-
 	rf.persist()
 
 	DPrintf(tSnapshot,
@@ -438,6 +428,103 @@ func (rf *Raft) RequestVote(rawargs *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 }
 
+type InstallSnapshotArgs struct {
+	Term                     int    // leader's term
+	LeaderId                 int    // so follower can redirect clients
+	LastIncludedCommandIndex int    // the snapshot command index
+	LastIncludedLogIndex     int    // the snapshot replaces all entries up through and including this index
+	LastIncludedTerm         int    // term of LastIncludedIndex
+	Data                     []byte // raw bytes of the snapshot chunk, starting at offset
+}
+
+type InstallSnapshotReply struct {
+	Term int // currentTerm, for leader to update itself
+}
+
+func (args InstallSnapshotArgs) Format(f fmt.State, c rune) {
+	switch c {
+	case 'v':
+		if f.Flag('+') {
+			fmt.Fprintf(f,
+				"{Term:%+v LeaderId:%+v LastIncludedCommandIndex:%+v LastIncludedLogIndex:%+v LastIncludedTerm:%+v SnapshotSize:%+v}",
+				args.Term, args.LeaderId, args.LastIncludedCommandIndex, args.LastIncludedLogIndex, args.LastIncludedTerm, len(args.Data),
+			)
+		}
+	default:
+		fmt.Fprintf(f, "%v", args)
+	}
+}
+
+func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
+	rf.lock("InstallSnapshot")
+	defer rf.unlock("InstallSnapshot")
+
+	DPrintf(tReceiveSnapshot,
+		"S%d(%d,%v) <- S%d(%d), receive snapshot %+v",
+		rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, args,
+	)
+
+	// InstallSnapshot rule 1: reply false for smaller term from leader
+	if rf.currentTerm > args.Term {
+		reply.Term = rf.currentTerm
+		DPrintf(tReceiveSnapshot,
+			"S%d(%d,%v) <- S%d(%d), snapshot reject, lower term, currentTerm=%d",
+			rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, rf.currentTerm,
+		)
+		return
+	}
+
+	// Rule for Server: candidate, convert to follower if receive append entries from leader
+	if rf.state == Candidate {
+		rf.changeState(Follower)
+	}
+
+	// Rules for Servers: lower term, change to follower
+	rf.maybeChangeTerm(args.Term)
+
+	// record append entries timer
+	// TODO: timer
+	rf.lastAppendEntriesTime.refresh(args.LeaderId, args.Term)
+
+	reply.Term = args.Term
+
+	rf.snapshot = make([]byte, len(args.Data))
+	copy(rf.snapshot, args.Data)
+	DPrintf(tReceiveSnapshot,
+		"S%d(%d,%v) <- S%d(%d), wrote snapshot len=%d",
+		rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, len(rf.snapshot),
+	)
+
+	// retain log entries if matching index with term is found
+	index := len(rf.log) - 1
+	for index >= 0 {
+		if rf.log[index].CommandIndex == args.LastIncludedCommandIndex {
+			break
+		}
+		index--
+	}
+	zombieEntry := raftLogEntry{
+		Command:      nil,
+		CommandIndex: args.LastIncludedCommandIndex,
+		LogIndex:     args.LastIncludedLogIndex,
+		Term:         args.LastIncludedTerm,
+		LogEntryType: noOpLogEntry,
+	}
+	if index >= 0 && rf.log[index].Term == args.LastIncludedTerm {
+		// retain the follow entries
+		rf.removeSnapshotLog(index, zombieEntry)
+	} else {
+		rf.removeSnapshotLog(len(rf.log)-1, zombieEntry)
+	}
+
+	// persist the log and snapshot
+	rf.persist()
+
+	go func() {
+		rf.snapshotChangedCh <- true
+	}()
+}
+
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
 // expects RPC arguments in args.
@@ -552,6 +639,33 @@ func (rf *Raft) changeState(state serverState) {
 	if rf.state != state {
 		DPrintf(tStatus, "S%d(%d,%v), change state to %v", rf.me, rf.currentTerm, rf.state, state)
 		rf.state = state
+	}
+}
+
+// Remove entries in the log upto index.
+// Put a zombie entry at the index 0.
+func (rf *Raft) removeSnapshotLog(upto int, zombieEntry raftLogEntry) {
+	oldSnapshotOffset := rf.snapshotOffset()
+
+	newlog := make(raftLog, 0)
+	newlog = append(newlog, zombieEntry)
+	if upto+1 < len(rf.log) {
+		newlog = append(newlog, rf.log[upto+1:]...)
+	}
+	rf.log = newlog
+
+	// all the old index should be shifted with the new snapshot offset
+	offset := rf.snapshotOffset() - oldSnapshotOffset
+	if offset <= 0 {
+		log.Fatalf("invalid offset: %d\n", offset)
+	}
+	rf.commitIndex = max(0, rf.commitIndex-offset)
+	rf.lastApplied = max(0, rf.lastApplied-offset)
+	for i := range rf.matchIndex {
+		rf.matchIndex[i] = rf.matchIndex[i] - offset
+	}
+	for i := range rf.nextIndex {
+		rf.nextIndex[i] = rf.nextIndex[i] - offset
 	}
 }
 
