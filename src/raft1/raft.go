@@ -261,7 +261,10 @@ func (rf *Raft) AppendEntries(rawargs *AppendEntriesArgs, reply *AppendEntriesRe
 	reply.XLen = -1
 	reply.Success = false
 
-	DPrintf(tReceiveAppend, "S%d(%d,%v) <- S%d(%d), receive append %+v", rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, args)
+	DPrintf(tReceiveAppend,
+		"S%d(%d,%v) <- S%d(%d), receive append\n\targs=%+v\n\trawargs=%+v",
+		rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, args, rawargs,
+	)
 
 	// AppendEntries rule 1: reply false for smaller term from leader
 	if rf.currentTerm > args.Term {
@@ -467,6 +470,12 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	DPrintf(tSendAppend, "S%d(%d,-) -> S%d(-), send append entries", rf.me, args.Term, server)
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
+
+func (rf *Raft) sendInstallSnapshot(server int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) bool {
+	DPrintf(tSendSnapshot, "S%d(%d,-) -> S%d(-), send install snapshot", rf.me, args.Term, server)
+	ok := rf.peers[server].Call("Raft.InstallSnapshot", args, reply)
 	return ok
 }
 

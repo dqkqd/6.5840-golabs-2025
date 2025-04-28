@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+type replicateType int
+
+const (
+	sendAppendEntries replicateType = iota
+	sendInstallSnapshot
+)
+
 // looping and send append entries to a peer until agreement is reached
 func (rf *Raft) replicate(server int) {
 	if !rf.canReplicate(server) {
@@ -21,41 +28,125 @@ func (rf *Raft) replicate(server int) {
 
 loop:
 	for !rf.killed() {
+		var appendEntriesArgs AppendEntriesArgs
+		var installSnapshotArgs InstallSnapshotArgs
+		var repType replicateType
 
 		// do not send append tries if we are not leader
 		rf.lock(fmt.Sprintf("replicate %d", server))
 		state := rf.state
+		term := rf.currentTerm
 		// make sure nextIndex does not exceed log length
 		rf.nextIndex[server] = min(rf.nextIndex[server], len(rf.log))
-		args := rf.appendEntriesArgs(rf.nextIndex[server])
+
+		// whether we are sending append entries or snapshot
+		if rf.nextIndex[server] >= 1 {
+			repType = sendAppendEntries
+			appendEntriesArgs = rf.appendEntriesArgs(rf.nextIndex[server])
+		} else {
+			repType = sendInstallSnapshot
+			installSnapshotArgs = rf.installSnapshotArgs()
+		}
+
 		rf.unlock(fmt.Sprintf("replicate %d", server))
 
 		if state != Leader {
-			DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d,-), do not send append entries", rf.me, args.Term, state, server, args.Term)
-			break
+			DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d,-), do not replicate", rf.me, term, state, server, term)
+			return
 		}
 
-		// `sendAppendEntries` can wait even if server reconnect, so we need to add timeout ourselves
-		replyCh := make(chan AppendEntriesReply)
-		go func() {
-			reply := AppendEntriesReply{}
-			ok := rf.sendAppendEntries(server, &args, &reply)
-			if ok {
-				replyCh <- reply
-			}
-		}()
-
-		select {
-		case <-time.After(retryTimeout()):
-			DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), retry", rf.me, args.Term, state, server, args.Term)
-			continue
-		case reply := <-replyCh:
-			finished := rf.handleAppendEntriesReply(server, &args, &reply)
+		switch repType {
+		case sendAppendEntries:
+			finished := rf.replicateAppendEntries(server, state, &appendEntriesArgs)
 			if finished {
-				DPrintf(tSendAppend, "S%d(%d,-) -> S%d(%d,-), finished append entries", rf.me, args.Term, server, args.Term)
+				break loop
+			}
+
+		case sendInstallSnapshot:
+			finished := rf.replicateInstallSnapshot(server, state, &installSnapshotArgs)
+			if finished {
 				break loop
 			}
 		}
+	}
+}
+
+func (rf *Raft) replicateAppendEntries(server int, state serverState, args *AppendEntriesArgs) (finished bool) {
+	// `sendAppendEntries` can wait even if server reconnect, so we need to add timeout ourselves
+	replyCh := make(chan AppendEntriesReply)
+
+	go func() {
+		reply := AppendEntriesReply{}
+		ok := rf.sendAppendEntries(server, args, &reply)
+		if ok {
+			replyCh <- reply
+		}
+	}()
+
+	select {
+	case <-time.After(retryTimeout()):
+		DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), retry", rf.me, args.Term, state, server, args.Term)
+		return false
+	case reply := <-replyCh:
+		DPrintf(tSendAppend, "S%d(%d,-) -> S%d(%d,-), receive append entries reply", rf.me, args.Term, server, args.Term)
+		finished := rf.handleAppendEntriesReply(server, args, &reply)
+		if finished {
+			DPrintf(tSendAppend, "S%d(%d,-) -> S%d(%d,-), finished append entries replication", rf.me, args.Term, server, args.Term)
+		}
+		return finished
+	}
+}
+
+func (rf *Raft) replicateInstallSnapshot(server int, state serverState, args *InstallSnapshotArgs) (finished bool) {
+	// `sendInstallSnapshot` can wait even if server reconnect, so we need to add timeout ourselves
+	replyCh := make(chan InstallSnapshotReply)
+
+	go func() {
+		reply := InstallSnapshotReply{}
+		ok := rf.sendInstallSnapshot(server, args, &reply)
+		if ok {
+			replyCh <- reply
+		}
+	}()
+
+	select {
+	case <-time.After(retryTimeout()):
+		DPrintf(tSendSnapshot, "S%d(%d,%v) -> S%d(%d), retry", rf.me, args.Term, state, server, args.Term)
+		return false
+	case reply := <-replyCh:
+		DPrintf(tSendSnapshot, "S%d(%d,-) -> S%d(%d,-), receive install snapshot reply", rf.me, args.Term, server, args.Term)
+		finished = rf.handleInstallSnapshotReply(server, args, &reply)
+		if finished {
+			DPrintf(tSendSnapshot, "S%d(%d,-) -> S%d(%d,-), finished install snapshot replication", rf.me, args.Term, server, args.Term)
+		}
+		return finished
+	}
+}
+
+func (rf *Raft) handleTermMismatchReplicateReply(server int, argsTerm, replyTerm int, topic logTopic) (finished bool) {
+	// continue if the term match
+	if rf.currentTerm == argsTerm && rf.currentTerm == replyTerm {
+		return false
+	}
+
+	// the reply term doesn't match current term or args term
+	// we check if we should change the term and then abort the handling
+	DPrintf(topic, "S%d(%d,%v) -> S%d(%d), replicating failed, term changed, currentTerm=%d", rf.me, argsTerm, rf.state, server, replyTerm, rf.currentTerm)
+
+	// Rules for Servers: lower term, change to follower
+	// term has been changed from peer, change to follower and return immediately
+	if rf.currentTerm < replyTerm {
+		rf.maybeChangeTerm(replyTerm)
+	}
+	// otherwise, the reply is from previous round
+	// it might be staled and incorrect. Should retry
+
+	// only continue if we are still the leader
+	if rf.state != Leader {
+		DPrintf(topic, "S%d(%d,%v) -> S%d(%d), replicating failed, not a leader", rf.me, argsTerm, rf.state, server, replyTerm)
+		return true
+	} else {
+		return false
 	}
 }
 
@@ -64,6 +155,11 @@ loop:
 func (rf *Raft) handleAppendEntriesReply(server int, rawargs *AppendEntriesArgs, rawreply *AppendEntriesReply) (finished bool) {
 	rf.lock("handleAppendEntriesReply")
 	defer rf.unlock("handleAppendEntriesReply")
+	finished = rf.handleTermMismatchReplicateReply(server, rawargs.Term, rawreply.Term, tSendAppend)
+	if finished {
+		return
+	}
+
 	args := *rawargs
 	reply := *rawreply
 	args.PrevLogIndex -= rf.snapshotOffset()
@@ -75,29 +171,10 @@ func (rf *Raft) handleAppendEntriesReply(server int, rawargs *AppendEntriesArgs,
 		reply.XLen -= rf.snapshotOffset()
 	}
 
-	DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), handle append entries", rf.me, args.Term, rf.state, server, reply.Term)
-
-	// the reply term doesn't match current term or args term
-	// we check if we should change the term and then abort the handling
-	if reply.Term != rf.currentTerm || reply.Term != args.Term {
-		DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), append failed, term changed, currentTerm=%d", rf.me, args.Term, rf.state, server, reply.Term, rf.currentTerm)
-
-		// Rules for Servers: lower term, change to follower
-		// term has been changed from peer, change to follower and return immediately
-		if rf.currentTerm < reply.Term {
-			rf.maybeChangeTerm(reply.Term)
-		}
-		// otherwise, the reply is from previous append entries round
-		// it might be staled and incorrect. Should retry with different nextIndex
-
-		// only continue if we are still the leader
-		if rf.state != Leader {
-			DPrintf(tSendAppend, "S%d(%d,%v) -> S%d(%d), append failed, not a leader", rf.me, args.Term, rf.state, server, reply.Term)
-			return true
-		} else {
-			return false
-		}
-	}
+	DPrintf(tSendAppend,
+		"S%d(%d,%v) -> S%d(%d), handle append entries\n\targs=%+v\n\trawargs=%+v\n\treply=%+v\n\trawreply=%+v",
+		rf.me, args.Term, rf.state, server, reply.Term, args, rawargs, reply, rawreply,
+	)
 
 	// can be sure that current term, reply term, and args term match
 	if reply.Success {
@@ -105,6 +182,34 @@ func (rf *Raft) handleAppendEntriesReply(server int, rawargs *AppendEntriesArgs,
 	} else {
 		return rf.handleFailedAppendEntries(server, &args, &reply)
 	}
+}
+
+// handle returned append entries
+// return the nextIndex to retry, or finished to indicate we shouldn't send out more any rpc
+func (rf *Raft) handleInstallSnapshotReply(server int, rawargs *InstallSnapshotArgs, rawreply *InstallSnapshotReply) (finished bool) {
+	rf.lock("handleInstallSnapshotReply")
+	defer rf.unlock("handleInstallSnapshotReply")
+	finished = rf.handleTermMismatchReplicateReply(server, rawargs.Term, rawreply.Term, tSendSnapshot)
+	if finished {
+		return
+	}
+
+	args := *rawargs
+
+	rf.matchIndex[server] = args.LastIncludedLogIndex
+	rf.nextIndex[server] = rf.matchIndex[server] + 1
+
+	rf.setCommitIndexAsMajorityReplicatedIndex()
+
+	finished = rf.nextIndex[server] == len(rf.log)
+	if !finished {
+		DPrintf(tSendSnapshot,
+			"S%d(%d,%v) -> S%d(%d), len(log)=%d > nextIndex=%d, need another append entries round",
+			rf.me, args.Term, rf.state, server, rawreply.Term, len(rf.log), rf.nextIndex[server],
+		)
+	}
+
+	return finished
 }
 
 func (rf *Raft) canReplicate(server int) bool {
@@ -165,7 +270,7 @@ func (rf *Raft) handleFailedAppendEntries(server int, args *AppendEntriesArgs, r
 
 		lastXTermIndex := rf.log.findLastIndexWithTerm(reply.XTerm)
 
-		if lastXTermIndex >= 0 && rf.log[lastXTermIndex].Term == reply.XTerm {
+		if lastXTermIndex >= 0 && lastXTermIndex < len(rf.log) && rf.log[lastXTermIndex].Term == reply.XTerm {
 			// leader has XTerm
 			rf.nextIndex[server] = lastXTermIndex + 1
 		} else {
@@ -201,12 +306,28 @@ func (rf *Raft) appendEntriesArgs(at int) AppendEntriesArgs {
 	}
 }
 
+func (rf *Raft) installSnapshotArgs() InstallSnapshotArgs {
+	data := make([]byte, len(rf.snapshot))
+	copy(data, rf.snapshot)
+	return InstallSnapshotArgs{
+		Term:                     rf.currentTerm,
+		LeaderId:                 rf.me,
+		LastIncludedCommandIndex: rf.log[0].CommandIndex,
+		LastIncludedLogIndex:     rf.log[0].LogIndex,
+		LastIncludedTerm:         rf.log[0].Term,
+		Data:                     data,
+	}
+}
+
 func (rf *Raft) setCommitIndexAsMajorityReplicatedIndex() {
 	// find majority matchIndex `n` such that 0 <= n < len(log),
 	// we instead find the first index that the majority doesn't hold.
 	// If the majority doesn't hold for `i`, then it doesn't hold for `i + 1` and so on,
 	// then `n = index - 1` (the largest index that the majority holds true)
-	// we can always sure `n` exists, because all `matchIndex >= 0`
+	//
+	// we can always sure that commitIndex >= 0 (because it is replicated in the state machine)
+	// but follower's matchIndex can negative (incase that follower need to catch up using snapshot)
+	// so `n` might not always exist
 	index := sort.Search(len(rf.log), func(i int) bool {
 		count := 1 // self should always be counted
 		for server := range rf.peers {
@@ -218,6 +339,11 @@ func (rf *Raft) setCommitIndexAsMajorityReplicatedIndex() {
 	})
 
 	n := index - 1
+
+	// do not change commit index if n < 0
+	if n < 0 {
+		return
+	}
 
 	// only check the largest `n` such that `rf.log[n].Term == currentTerm`,
 	// and since we don't search for index that have already committed,
