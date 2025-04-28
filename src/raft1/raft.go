@@ -66,6 +66,7 @@ type Raft struct {
 	electionTimeout      time.Duration         // current election timeout
 	replicating          []bool                // boolean array indicate whether an server is replicating
 	commitIndexChangedCh chan bool
+	snapshotChangedCh    chan bool
 
 	// record the last time we received append entries, or voted for someone, to determine whether we should start an election
 	lastAppendEntriesTime electionRecordTimer
@@ -755,6 +756,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// apply command
 	rf.commitIndexChangedCh = make(chan bool)
+	rf.snapshotChangedCh = make(chan bool)
 	go rf.applier()
 
 	return rf
