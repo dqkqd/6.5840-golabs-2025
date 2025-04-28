@@ -144,6 +144,7 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.currentTerm = currentTerm
 		rf.votedFor = votedFor
 		rf.log = rlog
+		rf.snapshot = rf.persister.ReadSnapshot()
 	}
 }
 
