@@ -761,6 +761,9 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
+
+	// make applyCh nil, because closing it making sending to it in another thread panic
+	rf.applyCh = nil
 }
 
 func (rf *Raft) killed() bool {

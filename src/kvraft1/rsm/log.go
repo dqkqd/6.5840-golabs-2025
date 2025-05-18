@@ -32,12 +32,12 @@ const (
 	tSendReturn    logTopic = "SRTN"
 	tReceiveReturn logTopic = "RRTN"
 	tSubmit        logTopic = "SUBM"
+	tStop          logTopic = "STOP"
 
 	tVote            logTopic = "VOTE"
 	tHeartbeat       logTopic = "BEAT"
 	tBecomeLeader    logTopic = "LEAD"
 	tElection        logTopic = "ELCT"
-	tStatus          logTopic = "STAT"
 	tSnapshot        logTopic = "SNAP"
 	tSendSnapshot    logTopic = "SSNP"
 	tReceiveSnapshot logTopic = "RSNP"
@@ -102,7 +102,7 @@ func (t logTopic) color() logColor {
 			return tColorGreen
 		case tElection:
 			return tColorCyan
-		case tStatus:
+		case tStop:
 			return tColorPurple
 		case tSnapshot:
 			return tColorDarkOrange

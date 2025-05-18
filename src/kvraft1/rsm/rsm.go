@@ -84,14 +84,27 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 	// reader goroutines
 	go func() {
 		for {
-			msg := <-rsm.applyCh
-			op := msg.Command.(Op)
-			DPrintf(tApply, "S%d <- S%d: received from applyCh, op=%+v", rsm.me, op.Me, op)
-			res := rsm.sm.DoOp(op.Req)
+			for {
+				// applyCh can be null, need to check to avoid deadlock
+				select {
+				case msg := <-rsm.applyCh:
+					op := msg.Command.(Op)
+					DPrintf(tApply, "S%d <- S%d: received from applyCh, op=%+v", rsm.me, op.Me, op)
+					res := rsm.sm.DoOp(op.Req)
 
-			if op.Me == rsm.me {
-				DPrintf(tSendReturn, "S%d: send DoOp result=%+v", rsm.me, res)
-				rsm.returnCh <- ReturnOp{opId: op.Id, result: res, commandIndex: msg.CommandIndex}
+					if op.Me == rsm.me {
+						DPrintf(tSendReturn, "S%d: send DoOp result=%+v", rsm.me, res)
+						rsm.returnCh <- ReturnOp{opId: op.Id, result: res, commandIndex: msg.CommandIndex}
+					}
+
+				case <-time.After(50 * time.Millisecond):
+					if rsm.applyCh == nil {
+						// channel is closed
+						DPrintf(tStop, "S%d: stop operation", rsm.me)
+						close(rsm.returnCh)
+						return
+					}
+				}
 			}
 		}
 	}()
@@ -122,7 +135,13 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 
 	for {
 		select {
-		case res := <-rsm.returnCh:
+		case res, ok := <-rsm.returnCh:
+			if !ok {
+				DPrintf(tStop, "S%d: stop operation", rsm.me)
+				// TODO: maybe?
+				return rpc.ErrMaybe, nil
+			}
+
 			DPrintf(tReceiveReturn, "S%d, receive returned op=%+v, res=%+v", rsm.me, op, res)
 			if res.commandIndex != expectedIndex {
 				DPrintf(tSubmit, "S%d: reject op=%+v, expected index=%v, got=%v", rsm.me, op, expectedIndex, res.commandIndex)
