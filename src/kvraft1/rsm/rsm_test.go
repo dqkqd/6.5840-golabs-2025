@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"6.5840/kvsrv1/rpc"
+	tester "6.5840/tester1"
 )
 
 // test that each server executes increments and updates its counter.

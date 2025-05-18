@@ -7,6 +7,7 @@ import (
 	"6.5840/kvsrv1/rpc"
 	"6.5840/labgob"
 	"6.5840/labrpc"
+	tester "6.5840/tester1"
 )
 
 type KVServer struct {
