@@ -2,6 +2,8 @@ package rsm
 
 import (
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"6.5840/kvsrv1/rpc"
 	"6.5840/labrpc"
@@ -16,6 +18,15 @@ type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	Me  int   // state machine id
+	Id  int64 // op unique id
+	Req any   // actual request from client
+}
+
+type ReturnOp struct {
+	opId         int64
+	result       any
+	commandIndex int
 }
 
 // A server (i.e., ../server.go) that wants to replicate itself calls
@@ -38,6 +49,8 @@ type RSM struct {
 	maxraftstate int // snapshot if log grows this big
 	sm           StateMachine
 	// Your definitions here.
+	opId     atomic.Int64
+	returnCh chan ReturnOp
 }
 
 // servers[] contains the ports of the set of
@@ -61,10 +74,27 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 		maxraftstate: maxraftstate,
 		applyCh:      make(chan raftapi.ApplyMsg),
 		sm:           sm,
+		returnCh:     make(chan ReturnOp),
 	}
 	if !useRaftStateMachine {
 		rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
 	}
+	logInit()
+
+	// reader goroutines
+	go func() {
+		for {
+			msg := <-rsm.applyCh
+			op := msg.Command.(Op)
+			DPrintf(tApply, "S%d <- S%d: received from applyCh, op=%+v", rsm.me, op.Me, op)
+			res := rsm.sm.DoOp(op.Req)
+
+			if op.Me == rsm.me {
+				DPrintf(tSendReturn, "S%d: send DoOp result=%+v", rsm.me, res)
+				rsm.returnCh <- ReturnOp{opId: op.Id, result: res, commandIndex: msg.CommandIndex}
+			}
+		}
+	}()
 	return rsm
 }
 
@@ -81,5 +111,35 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 	// is the argument to Submit and id is a unique id for the op.
 
 	// your code here
-	return rpc.ErrWrongLeader, nil // i'm dead, try another server.
+	op := Op{Me: rsm.me, Id: rsm.opId.Add(1), Req: req}
+	DPrintf(tSubmit, "S%d: start op=%+v", rsm.me, op)
+
+	expectedIndex, term, isLeader := rsm.rf.Start(op)
+	if !isLeader {
+		DPrintf(tSubmit, "S%d: reject op=%+v, not a leader in term %d", rsm.me, op, term)
+		return rpc.ErrWrongLeader, nil
+	}
+
+	for {
+		select {
+		case res := <-rsm.returnCh:
+			DPrintf(tReceiveReturn, "S%d, receive returned op=%+v, res=%+v", rsm.me, op, res)
+			if res.commandIndex != expectedIndex {
+				DPrintf(tSubmit, "S%d: reject op=%+v, expected index=%v, got=%v", rsm.me, op, expectedIndex, res.commandIndex)
+				return rpc.ErrWrongLeader, nil
+			}
+			if res.opId < op.Id {
+				DPrintf(tSubmit, "S%d: skip op=%+v, staled id, expected=%v, got=%v", rsm.me, op, op.Id, res.opId)
+				continue
+			}
+			return rpc.OK, res.result
+
+		case <-time.After(time.Millisecond * 10):
+			currentTerm, _ := rsm.rf.GetState()
+			if currentTerm != term {
+				DPrintf(tSubmit, "S%d: reject op=%+v, term changed while waiting for result (%d -> %d)", rsm.me, op, term, currentTerm)
+				return rpc.ErrWrongLeader, nil
+			}
+		}
+	}
 }
