@@ -892,6 +892,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// apply command
 	rf.commitIndexChangedCh = make(chan bool)
 	rf.snapshotChangedCh = make(chan bool)
+	// trigger replay log
+	go func() { rf.commitIndexChangedCh <- true }()
 	go rf.applier()
 
 	return rf
