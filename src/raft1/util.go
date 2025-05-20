@@ -71,7 +71,7 @@ func DPrintf(topic logTopic, format string, a ...any) {
 	if Debug {
 		at := time.Since(debugStart).Microseconds()
 		at /= 100
-		prefix := fmt.Sprintf("%08d %v ", at, topic)
+		prefix := fmt.Sprintf("%08d RAFT %v ", at, topic)
 
 		format = prefix + format
 

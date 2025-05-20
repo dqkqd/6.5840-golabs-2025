@@ -69,6 +69,8 @@ type RSM struct {
 // MakeRSM() must return quickly, so it should start goroutines for
 // any long-running work.
 func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, maxraftstate int, sm StateMachine) *RSM {
+	logInit()
+
 	rsm := &RSM{
 		me:           me,
 		maxraftstate: maxraftstate,
@@ -79,29 +81,28 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 	if !useRaftStateMachine {
 		rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
 	}
-	logInit()
+	DPrintf(tStart, "S%d: start rsm", rsm.me)
 
 	// reader goroutines
 	go func() {
 		for {
+			// applyCh can be null, need a for loop to avoid deadlock
 			for {
-				// applyCh can be null, need to check to avoid deadlock
 				select {
 				case msg := <-rsm.applyCh:
 					op := msg.Command.(Op)
 					DPrintf(tApply, "S%d <- S%d: received from applyCh, op=%+v", rsm.me, op.Me, op)
 					res := rsm.sm.DoOp(op.Req)
-
 					if op.Me == rsm.me {
 						DPrintf(tSendReturn, "S%d: send DoOp result=%+v", rsm.me, res)
 						rsm.returnCh <- ReturnOp{opId: op.Id, result: res, commandIndex: msg.CommandIndex}
 					}
 
-				case <-time.After(50 * time.Millisecond):
+				case <-time.After(10 * time.Millisecond):
 					if rsm.applyCh == nil {
 						// channel is closed
-						DPrintf(tStop, "S%d: stop operation", rsm.me)
 						close(rsm.returnCh)
+						DPrintf(tStop, "S%d: applyCh closed, stop operation", rsm.me)
 						return
 					}
 				}
@@ -129,10 +130,11 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 
 	expectedIndex, term, isLeader := rsm.rf.Start(op)
 	if !isLeader {
-		DPrintf(tSubmit, "S%d: reject op=%+v, not a leader in term %d", rsm.me, op, term)
+		DPrintf(tSubmitErr, "S%d: reject op=%+v, not a leader in term %d", rsm.me, op, term)
 		return rpc.ErrWrongLeader, nil
 	}
 
+	// need a for loop to check whether term or leader changed
 	for {
 		select {
 		case res, ok := <-rsm.returnCh:
@@ -141,24 +143,25 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 				// TODO: maybe?
 				return rpc.ErrMaybe, nil
 			}
-
 			DPrintf(tReceiveReturn, "S%d, receive returned op=%+v, res=%+v", rsm.me, op, res)
 			if res.commandIndex != expectedIndex {
-				DPrintf(tSubmit, "S%d: reject op=%+v, expected index=%v, got=%v", rsm.me, op, expectedIndex, res.commandIndex)
+				DPrintf(tSubmitErr, "S%d: reject op=%+v, expected index=%v, got=%v", rsm.me, op, expectedIndex, res.commandIndex)
 				return rpc.ErrWrongLeader, nil
 			}
-			if res.opId < op.Id {
-				DPrintf(tSubmit, "S%d: skip op=%+v, staled id, expected=%v, got=%v", rsm.me, op, op.Id, res.opId)
-				continue
+			if res.opId != op.Id {
+				DPrintf(tSubmitErr, "S%d: skip op=%+v, staled id, expected=%v, got=%v", rsm.me, op, op.Id, res.opId)
+				return rpc.ErrWrongLeader, nil
 			}
+			DPrintf(tSubmitOk, "S%d: accept op=%+v, res=%+v", rsm.me, op, res)
 			return rpc.OK, res.result
 
-		case <-time.After(time.Millisecond * 10):
-			currentTerm, _ := rsm.rf.GetState()
-			if currentTerm != term {
-				DPrintf(tSubmit, "S%d: reject op=%+v, term changed while waiting for result (%d -> %d)", rsm.me, op, term, currentTerm)
+		case <-time.After(10 * time.Millisecond):
+			currentTerm, isLeader := rsm.rf.GetState()
+			if currentTerm != term || !isLeader {
+				DPrintf(tSubmitErr, "S%d: reject op=%+v, term changed while waiting for result (%d -> %d)", rsm.me, op, term, currentTerm)
 				return rpc.ErrWrongLeader, nil
 			}
+
 		}
 	}
 }

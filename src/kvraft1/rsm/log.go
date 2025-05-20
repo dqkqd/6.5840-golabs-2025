@@ -32,11 +32,11 @@ const (
 	tSendReturn    logTopic = "SRTN"
 	tReceiveReturn logTopic = "RRTN"
 	tSubmit        logTopic = "SUBM"
+	tSubmitOk      logTopic = "SUBO"
+	tSubmitErr     logTopic = "SUBE"
 	tStop          logTopic = "STOP"
+	tStart         logTopic = "STRT"
 
-	tVote            logTopic = "VOTE"
-	tHeartbeat       logTopic = "BEAT"
-	tBecomeLeader    logTopic = "LEAD"
 	tElection        logTopic = "ELCT"
 	tSnapshot        logTopic = "SNAP"
 	tSendSnapshot    logTopic = "SSNP"
@@ -72,7 +72,7 @@ func DPrintf(topic logTopic, format string, a ...any) {
 	if Debug {
 		at := time.Since(debugStart).Microseconds()
 		at /= 100
-		prefix := fmt.Sprintf("%08d %v ", at, topic)
+		prefix := fmt.Sprintf("%08d RSM %v ", at, topic)
 
 		format = prefix + format
 
@@ -88,13 +88,13 @@ func DPrintf(topic logTopic, format string, a ...any) {
 func (t logTopic) color() logColor {
 	if enableLogColor {
 		switch t {
-		case tVote:
+		case tSubmitErr:
 			return tColorRed
 		case tSendReturn:
 			return tColorBlue
 		case tReceiveReturn:
 			return tColorTeal
-		case tHeartbeat:
+		case tStart:
 			return tColorMagenta
 		case tSubmit:
 			return tColorYellow
