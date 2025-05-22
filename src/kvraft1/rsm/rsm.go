@@ -50,7 +50,7 @@ type RSM struct {
 	sm           StateMachine
 	// Your definitions here.
 	opId     atomic.Int64
-	returnCh chan ReturnOp
+	returnCh map[int64]chan ReturnOp
 }
 
 // servers[] contains the ports of the set of
@@ -76,7 +76,7 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 		maxraftstate: maxraftstate,
 		applyCh:      make(chan raftapi.ApplyMsg),
 		sm:           sm,
-		returnCh:     make(chan ReturnOp),
+		returnCh:     make(map[int64]chan ReturnOp),
 	}
 	if !useRaftStateMachine {
 		rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
@@ -84,31 +84,8 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 	DPrintf(tStart, "S%d: start rsm", rsm.me)
 
 	// reader goroutines
-	go func() {
-		for {
-			// applyCh can be null, need a for loop to avoid deadlock
-			for {
-				select {
-				case msg := <-rsm.applyCh:
-					op := msg.Command.(Op)
-					DPrintf(tApply, "S%d <- S%d: received from applyCh, op=%+v", rsm.me, op.Me, op)
-					res := rsm.sm.DoOp(op.Req)
-					if op.Me == rsm.me {
-						DPrintf(tSendReturn, "S%d: send DoOp result=%+v", rsm.me, res)
-						rsm.returnCh <- ReturnOp{opId: op.Id, result: res, commandIndex: msg.CommandIndex}
-					}
+	go rsm.runReader()
 
-				case <-time.After(10 * time.Millisecond):
-					if rsm.applyCh == nil {
-						// channel is closed
-						close(rsm.returnCh)
-						DPrintf(tStop, "S%d: applyCh closed, stop operation", rsm.me)
-						return
-					}
-				}
-			}
-		}
-	}()
 	return rsm
 }
 
@@ -126,18 +103,29 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 
 	// your code here
 	op := Op{Me: rsm.me, Id: rsm.opId.Add(1), Req: req}
-	DPrintf(tSubmit, "S%d: start op=%+v", rsm.me, op)
 
-	expectedIndex, term, isLeader := rsm.rf.Start(op)
-	if !isLeader {
-		DPrintf(tSubmitErr, "S%d: reject op=%+v, not a leader in term %d", rsm.me, op, term)
-		return rpc.ErrWrongLeader, nil
-	}
+	retCh := make(chan ReturnOp)
+	rsm.mu.Lock()
+	rsm.returnCh[op.Id] = retCh
+	rsm.mu.Unlock()
+
+	defer func() {
+		rsm.mu.Lock()
+		retCh, ok := rsm.returnCh[op.Id]
+		if ok {
+			delete(rsm.returnCh, op.Id)
+			close(retCh)
+		}
+		rsm.mu.Unlock()
+	}()
+
+	expectedIndex, term, _ := rsm.rf.Start(op)
+	DPrintf(tSubmit, "S%d: start op=%+v in term=%d, expected index=%d", rsm.me, op, term, expectedIndex)
 
 	// need a for loop to check whether term or leader changed
 	for {
 		select {
-		case res, ok := <-rsm.returnCh:
+		case res, ok := <-retCh:
 			if !ok {
 				DPrintf(tStop, "S%d: stop operation", rsm.me)
 				// TODO: maybe?
@@ -155,13 +143,46 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 			DPrintf(tSubmitOk, "S%d: accept op=%+v, res=%+v", rsm.me, op, res)
 			return rpc.OK, res.result
 
-		case <-time.After(10 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			currentTerm, isLeader := rsm.rf.GetState()
-			if currentTerm != term || !isLeader {
+			if !isLeader {
+				DPrintf(tSubmitErr, "S%d: reject op=%+v, not a leader in term %d", rsm.me, op, term)
+				return rpc.ErrWrongLeader, nil
+			}
+			if currentTerm != term {
 				DPrintf(tSubmitErr, "S%d: reject op=%+v, term changed while waiting for result (%d -> %d)", rsm.me, op, term, currentTerm)
 				return rpc.ErrWrongLeader, nil
 			}
 
+		}
+	}
+}
+
+func (rsm *RSM) runReader() {
+	for {
+		msg, ok := <-rsm.applyCh
+		if !ok {
+			// channel is closed
+			DPrintf(tStop, "S%d: applyCh closed, stop operation", rsm.me)
+			rsm.mu.Lock()
+			for opId, ch := range rsm.returnCh {
+				delete(rsm.returnCh, opId)
+				close(ch)
+			}
+			rsm.mu.Unlock()
+			return
+		}
+		op := msg.Command.(Op)
+		DPrintf(tApply, "S%d <- S%d: received from applyCh, op=%+v", rsm.me, op.Me, op)
+		res := rsm.sm.DoOp(op.Req)
+		if op.Me == rsm.me {
+			rsm.mu.Lock()
+			retCh, ok := rsm.returnCh[op.Id]
+			rsm.mu.Unlock()
+			if ok {
+				DPrintf(tSendReturn, "S%d: send DoOp result=%+v", rsm.me, res)
+				retCh <- ReturnOp{opId: op.Id, result: res, commandIndex: msg.CommandIndex}
+			}
 		}
 	}
 }
