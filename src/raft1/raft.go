@@ -63,6 +63,7 @@ type Raft struct {
 	electionModifier     chan time.Duration    // whether to reset election timeout
 	heartbeatTrigger     chan bool             // whether to trigger heartbeat now
 	applyCh              chan raftapi.ApplyMsg // apply channel to state machine
+	closeApplyCh         chan struct{}         // apply channel to state machine
 	electionTimeout      time.Duration         // current election timeout
 	replicating          []bool                // boolean array indicate whether an server is replicating
 	commitIndexChangedCh chan bool
@@ -762,8 +763,8 @@ func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
 
-	// make applyCh nil, because closing it making sending to it in another thread panic
-	rf.applyCh = nil
+	// close apply ch
+	rf.closeApplyCh <- struct{}{}
 }
 
 func (rf *Raft) killed() bool {
@@ -850,6 +851,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (3A, 3B, 3C).
 	rf.applyCh = applyCh
+	rf.closeApplyCh = make(chan struct{})
 
 	// start as follower
 	rf.state = Follower

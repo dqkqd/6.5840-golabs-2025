@@ -1,8 +1,6 @@
 package raft
 
 import (
-	"time"
-
 	"6.5840/raftapi"
 )
 
@@ -14,6 +12,9 @@ func (rf *Raft) applier() {
 			rf.applyLog()
 		case <-rf.snapshotChangedCh:
 			rf.applySnapshot()
+		case <-rf.closeApplyCh:
+			close(rf.applyCh)
+			return
 		}
 	}
 }
@@ -42,7 +43,7 @@ func (rf *Raft) applyLog() {
 				Command:      log.Command,
 				CommandIndex: log.CommandIndex,
 			}
-			rf.sendApply(&msg)
+			rf.applyCh <- msg
 			DPrintf(tApply, "S%d(%d,-), apply, log: %+v", rf.me, log.Term, log)
 
 		case noOpLogEntry:
@@ -63,23 +64,7 @@ func (rf *Raft) applySnapshot() {
 	}
 	rf.unlock("applySnapshot")
 
-	if !rf.killed() {
-		// wait on blocking channel, to avoid sending command out of order
-		rf.sendApply(&msg)
-		DPrintf(tApply, "S%d(%d,-), apply, snapshot: %+v", rf.me, msg.SnapshotTerm, msg)
-	}
-}
-
-// try to send to apply channel, return false if the channel is closed
-func (rf *Raft) sendApply(msg *raftapi.ApplyMsg) bool {
-	for {
-		select {
-		case rf.applyCh <- *msg:
-			return true
-		case <-time.After(50 * time.Millisecond):
-			if rf.killed() {
-				return false
-			}
-		}
-	}
+	// wait on blocking channel, to avoid sending command out of order
+	rf.applyCh <- msg
+	DPrintf(tApply, "S%d(%d,-), apply, snapshot: %+v", rf.me, msg.SnapshotTerm, msg)
 }
