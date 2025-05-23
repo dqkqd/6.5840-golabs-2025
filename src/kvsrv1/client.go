@@ -35,17 +35,16 @@ func (ck *Clerk) wait() {
 // arguments. Additionally, reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	// You will have to modify this function.
+	args := rpc.GetArgs{
+		Key: key,
+	}
 	for {
-		args := rpc.GetArgs{
-			Key: key,
-		}
 		reply := rpc.GetReply{}
 		ok := ck.clnt.Call(ck.server, "KVServer.Get", &args, &reply)
-		if !ok {
-			ck.wait()
-			continue
+		if ok {
+			return reply.Value, reply.Version, reply.Err
 		}
-		return reply.Value, reply.Version, reply.Err
+		ck.wait()
 	}
 }
 
@@ -68,36 +67,27 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 // arguments. Additionally, reply must be passed as a pointer.
 func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 	// You will have to modify this function.
-
-	put := func() (rpc.PutReply, bool) {
-		args := rpc.PutArgs{
-			Key:     key,
-			Value:   value,
-			Version: version,
-		}
+	args := rpc.PutArgs{
+		Key:     key,
+		Value:   value,
+		Version: version,
+	}
+	maybe := false
+	for {
 		reply := rpc.PutReply{}
 		ok := ck.clnt.Call(ck.server, "KVServer.Put", &args, &reply)
-		return reply, ok
-	}
-
-	reply, ok := put()
-
-	if ok {
-		return reply.Err
-	} else {
-		// retry
-		for {
-			reply, ok := put()
-			if !ok {
-				ck.wait()
-				continue
-			}
-			// if we got `ErrVersion`, we need to return `ErrMaybe`
-			// since we don't know the previous rpc was success or not
-			if reply.Err == rpc.ErrVersion {
+		if !ok {
+			// we might have successfully put this key into the server but the response was lost
+			maybe = true
+			ck.wait()
+		} else {
+			// if we got `ErrVersion` with maybe, then this is not the first time we send it.
+			// we need to return `ErrMaybe` since we don't know the previous rpc was success or not
+			if maybe && reply.Err == rpc.ErrVersion {
 				return rpc.ErrMaybe
 			}
 			return reply.Err
 		}
+
 	}
 }
