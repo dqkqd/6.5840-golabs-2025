@@ -119,8 +119,12 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 		rsm.mu.Unlock()
 	}()
 
-	expectedIndex, term, _ := rsm.rf.Start(op)
+	expectedIndex, term, isLeader := rsm.rf.Start(op)
 	DPrintf(tSubmit, "S%d: start op=%+v in term=%d, expected index=%d", rsm.me, op, term, expectedIndex)
+	if !isLeader {
+		DPrintf(tSubmitErr, "S%d: reject op=%+v, not a leader in term %d", rsm.me, op, term)
+		return rpc.ErrWrongLeader, nil
+	}
 
 	// need a for loop to check whether term or leader changed
 	for {
