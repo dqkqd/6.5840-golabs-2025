@@ -35,16 +35,19 @@ class RaftCommand(enum.StrEnum):
 @enum.unique
 class RSMCommand(enum.StrEnum):
     Test4A = "4A"
+    TestRestartReplay4A = "TestRestartReplay4A"
 
 
 @enum.unique
 class KvRaftCommand(enum.StrEnum):
+    Test4B = "4B"
     TestBasic4B = "TestBasic4B"
     TestSpeed4B = "TestSpeed4B"
     TestConcurrent4B = "TestConcurrent4B"
     TestUnreliable4B = "TestUnreliable4B"
     TestOnePartition4B = "TestOnePartition4B"
     TestManyPartitionsOneClient4B = "TestManyPartitionsOneClient4B"
+    TestManyPartitionsManyClients4B = "TestManyPartitionsManyClients4B"
 
 
 @app.command()
@@ -183,10 +186,12 @@ def run_command(cwd: Path, command: str, timeout: int):
             _ = process.wait()
             print(f"Command {command}, timeout after {timeout}s")
 
+    failed_keys = ["FAIL", "DATA RACE", "warning:", "Fatal"]
     with output_file.open() as f:
         for line in f:
-            if "FAIL" in line or "DATA RACE" in line or "warning:" in line:
-                raise ExecutionError(f"error:\n{output_file}")
+            for k in failed_keys:
+                if k in line:
+                    raise ExecutionError(f"error, has: `{k}`:\n{output_file}")
 
     # remove those success
     output_file.unlink()

@@ -2,7 +2,6 @@ package rsm
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"6.5840/kvsrv1/rpc"
@@ -10,6 +9,8 @@ import (
 	raft "6.5840/raft1"
 	"6.5840/raftapi"
 	tester "6.5840/tester1"
+
+	"github.com/google/uuid"
 )
 
 var useRaftStateMachine bool // to plug in another raft besided raft1
@@ -18,13 +19,13 @@ type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
-	Me  int   // state machine id
-	Id  int64 // op unique id
-	Req any   // actual request from client
+	Me  int       // state machine id
+	Id  uuid.UUID // op unique id
+	Req any       // actual request from client
 }
 
 type ReturnOp struct {
-	opId         int64
+	opId         uuid.UUID
 	result       any
 	commandIndex int
 }
@@ -49,8 +50,7 @@ type RSM struct {
 	maxraftstate int // snapshot if log grows this big
 	sm           StateMachine
 	// Your definitions here.
-	opId     atomic.Int64
-	returnCh map[int64]chan ReturnOp
+	returnCh map[uuid.UUID]chan ReturnOp
 }
 
 // servers[] contains the ports of the set of
@@ -76,7 +76,7 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 		maxraftstate: maxraftstate,
 		applyCh:      make(chan raftapi.ApplyMsg),
 		sm:           sm,
-		returnCh:     make(map[int64]chan ReturnOp),
+		returnCh:     make(map[uuid.UUID]chan ReturnOp),
 	}
 	if !useRaftStateMachine {
 		rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
@@ -102,7 +102,7 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 	// is the argument to Submit and id is a unique id for the op.
 
 	// your code here
-	op := Op{Me: rsm.me, Id: rsm.opId.Add(1), Req: req}
+	op := Op{Me: rsm.me, Id: uuid.New(), Req: req}
 
 	retCh := make(chan ReturnOp)
 	rsm.mu.Lock()
