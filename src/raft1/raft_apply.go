@@ -6,7 +6,7 @@ import (
 
 // looping and applying log to the state machine
 func (rf *Raft) applier() {
-	for !rf.killed() {
+	for {
 		select {
 		case <-rf.commitIndexChangedCh:
 			rf.applyLog()
