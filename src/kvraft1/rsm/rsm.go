@@ -128,22 +128,17 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 		case res, ok := <-retCh:
 			if !ok {
 				DPrintf(tStop, "S%d: stop operation", rsm.me)
-				// TODO: maybe?
-				return rpc.ErrMaybe, nil
+				return rpc.ErrWrongLeader, nil
 			}
 			DPrintf(tReceiveReturn, "S%d, receive returned op=%+v, res=%+v", rsm.me, op, res)
 			if res.commandIndex != expectedIndex {
 				DPrintf(tSubmitErr, "S%d: reject op=%+v, expected index=%v, got=%v", rsm.me, op, expectedIndex, res.commandIndex)
 				return rpc.ErrWrongLeader, nil
 			}
-			if res.opId != op.Id {
-				DPrintf(tSubmitErr, "S%d: skip op=%+v, staled id, expected=%v, got=%v", rsm.me, op, op.Id, res.opId)
-				return rpc.ErrWrongLeader, nil
-			}
 			DPrintf(tSubmitOk, "S%d: accept op=%+v, res=%+v", rsm.me, op, res)
 			return rpc.OK, res.result
 
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(50 * time.Millisecond):
 			currentTerm, isLeader := rsm.rf.GetState()
 			if !isLeader {
 				DPrintf(tSubmitErr, "S%d: reject op=%+v, not a leader in term %d", rsm.me, op, term)
