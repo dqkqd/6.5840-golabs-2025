@@ -17,6 +17,7 @@ type Clerk struct {
 }
 
 func MakeClerk(clnt *tester.Clnt, servers []string) kvtest.IKVClerk {
+	logInit()
 	ck := &Clerk{clnt: clnt, servers: servers}
 	// You'll have to add code here.
 	ck.leader = atomic.Int64{}
