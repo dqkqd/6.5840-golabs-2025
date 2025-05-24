@@ -8,34 +8,51 @@ import (
 	tester "6.5840/tester1"
 )
 
+type kvErr = int
 
+const (
+	kvErrOk kvErr = iota
+	kvErrNoKey
+	kvErrVersion
+)
 
 type keyValue struct {
 	value   string
-	version rpc.Tversion
+	version uint64
 }
 
 type keyValueStore struct {
+	mu   sync.Mutex
 	data map[string]keyValue
 }
 
-func (s keyValueStore) get(key string) (keyValue, bool) {
+func (s *keyValueStore) get(key string) (keyValue, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	v, ok := s.data[key]
 	return v, ok
 }
 
-func (s keyValueStore) put(key, value string) {
-	v, ok := s.get(key)
-	if ok {
-		s.data[key] = keyValue{
-			version: v.version + 1,
-			value:   value,
+func (s *keyValueStore) put(key, value string, version uint64) kvErr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if version == 0 {
+		_, ok := s.data[key]
+		if ok {
+			return kvErrVersion
 		}
+		s.data[key] = keyValue{version: 1, value: value}
+		return kvErrOk
 	} else {
-		s.data[key] = keyValue{
-			version: 1,
-			value:   value,
+		v, ok := s.data[key]
+		if !ok {
+			return kvErrNoKey
 		}
+		if v.version != version {
+			return kvErrVersion
+		}
+		s.data[key] = keyValue{version: version + 1, value: value}
+		return kvErrOk
 	}
 }
 
@@ -59,12 +76,9 @@ func MakeKVServer() *KVServer {
 // exists. Otherwise, Get returns ErrNoKey.
 func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
 	// Your code here.
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-
 	v, ok := kv.store.get(args.Key)
 	if ok {
-		reply.Version = v.version
+		reply.Version = rpc.Tversion(v.version)
 		reply.Value = v.value
 		reply.Err = rpc.OK
 	} else {
@@ -78,28 +92,14 @@ func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
 // args.Version is 0, and returns ErrNoKey otherwise.
 func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 	// Your code here.
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
-
-	v, ok := kv.store.get(args.Key)
-	if ok {
-		if v.version == args.Version {
-			// match version
-			kv.store.put(args.Key, args.Value)
-			reply.Err = rpc.OK
-		} else {
-			// unmatch
-			reply.Err = rpc.ErrVersion
-		}
-	} else {
-		// no keys
-		if args.Version == 0 {
-			// create a new one
-			kv.store.put(args.Key, args.Value)
-			reply.Err = rpc.OK
-		} else {
-			reply.Err = rpc.ErrNoKey
-		}
+	err := kv.store.put(args.Key, args.Value, uint64(args.Version))
+	switch err {
+	case kvErrOk:
+		reply.Err = rpc.OK
+	case kvErrVersion:
+		reply.Err = rpc.ErrVersion
+	case kvErrNoKey:
+		reply.Err = rpc.ErrNoKey
 	}
 }
 
