@@ -45,6 +45,7 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 		reply := rpc.GetReply{}
 		ok := ck.clnt.Call(ck.servers[leader], "KVServer.Get", &args, &reply)
 		if !ok {
+			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
 			ck.wait()
 		} else if reply.Err == rpc.ErrWrongLeader {
 			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
@@ -83,6 +84,7 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 		if !ok {
 			// we might have successfully put this key into the server but the response was lost
 			maybe = true
+			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
 			ck.wait()
 		} else if reply.Err == rpc.ErrWrongLeader {
 			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
