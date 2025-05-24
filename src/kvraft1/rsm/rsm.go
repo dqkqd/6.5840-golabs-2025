@@ -130,7 +130,7 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 				DPrintf(tStop, "S%d: stop operation", rsm.me)
 				return rpc.ErrWrongLeader, nil
 			}
-			DPrintf(tReceiveReturn, "S%d, receive returned op=%+v, res=%+v", rsm.me, op, res)
+			DPrintf(tReturn, "S%d, receive returned op=%+v, res=%+v", rsm.me, op, res)
 			if res.commandIndex != expectedIndex {
 				DPrintf(tSubmitErr, "S%d: reject op=%+v, expected index=%v, got=%v", rsm.me, op, expectedIndex, res.commandIndex)
 				return rpc.ErrWrongLeader, nil
@@ -170,12 +170,13 @@ func (rsm *RSM) runReader() {
 		op := msg.Command.(Op)
 		DPrintf(tApply, "S%d <- S%d: received from applyCh, op=%+v", rsm.me, op.Me, op)
 		res := rsm.sm.DoOp(op.Req)
+		DPrintf(tDoOp, "S%d, DoOp res=%+v", rsm.me, res)
 		if op.Me == rsm.me {
 			rsm.mu.Lock()
 			retCh, ok := rsm.returnCh[op.Id]
 			rsm.mu.Unlock()
 			if ok {
-				DPrintf(tSendReturn, "S%d: send DoOp result=%+v", rsm.me, res)
+				DPrintf(tReturn, "S%d, send returned op=%+v, res=%+v", rsm.me, op, res)
 				retCh <- ReturnOp{opId: op.Id, result: res, commandIndex: msg.CommandIndex}
 			}
 		}

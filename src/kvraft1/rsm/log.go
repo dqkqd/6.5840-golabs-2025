@@ -28,14 +28,14 @@ type (
 )
 
 const (
-	tApply         logTopic = "APLY"
-	tSendReturn    logTopic = "SRTN"
-	tReceiveReturn logTopic = "RRTN"
-	tSubmit        logTopic = "SUBM"
-	tSubmitOk      logTopic = "SUBO"
-	tSubmitErr     logTopic = "SUBE"
-	tStop          logTopic = "STOP"
-	tStart         logTopic = "STRT"
+	tApply     logTopic = "APLY"
+	tReturn    logTopic = "RETR"
+	tDoOp      logTopic = "DOOP"
+	tSubmit    logTopic = "SUBM"
+	tSubmitOk  logTopic = "SUBO"
+	tSubmitErr logTopic = "SUBE"
+	tStop      logTopic = "STOP"
+	tStart     logTopic = "STRT"
 
 	tElection        logTopic = "ELCT"
 	tSnapshot        logTopic = "SNAP"
@@ -90,9 +90,9 @@ func (t logTopic) color() logColor {
 		switch t {
 		case tSubmitErr:
 			return tColorRed
-		case tSendReturn:
+		case tReturn:
 			return tColorBlue
-		case tReceiveReturn:
+		case tDoOp:
 			return tColorTeal
 		case tStart:
 			return tColorMagenta
