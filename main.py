@@ -32,6 +32,21 @@ class RaftCommand(enum.StrEnum):
     TestSnapshotBasic3D = "TestSnapshotBasic3D"
 
 
+@enum.unique
+class RSMCommand(enum.StrEnum):
+    Test4A = "4A"
+
+
+@enum.unique
+class KvRaftCommand(enum.StrEnum):
+    TestBasic4B = "TestBasic4B"
+    TestSpeed4B = "TestSpeed4B"
+    TestConcurrent4B = "TestConcurrent4B"
+    TestUnreliable4B = "TestUnreliable4B"
+    TestOnePartition4B = "TestOnePartition4B"
+    TestManyPartitionsOneClient4B = "TestManyPartitionsOneClient4B"
+
+
 @app.command()
 def raft(
     case: Annotated[RaftCommand, typer.Option(case_sensitive=False)],
@@ -46,6 +61,53 @@ def raft(
 
     execute(
         cwd=Path("src/raft1"),
+        command=case,
+        race=race,
+        sequence=not parallel,
+        iterations=iterations,
+        timeout=timeout,
+    )
+
+
+@app.command()
+def rsm(
+    case: Annotated[RSMCommand, typer.Option(case_sensitive=False)],
+    iterations: int = 5,
+    verbose: bool = False,
+    race: bool = False,
+    timeout: int = 600,
+    parallel: bool = False,
+):
+    if verbose:
+        os.environ["DEBUG"] = "1"
+        os.environ["RSM_DEBUG"] = "1"
+
+    execute(
+        cwd=Path("src/kvraft1/rsm"),
+        command=case,
+        race=race,
+        sequence=not parallel,
+        iterations=iterations,
+        timeout=timeout,
+    )
+
+
+@app.command()
+def kvraft(
+    case: Annotated[KvRaftCommand, typer.Option(case_sensitive=False)],
+    iterations: int = 5,
+    verbose: bool = False,
+    race: bool = False,
+    timeout: int = 60,
+    parallel: bool = False,
+):
+    if verbose:
+        os.environ["DEBUG"] = "1"
+        os.environ["RSM_DEBUG"] = "1"
+        os.environ["KVRAFT_DEBUG"] = "1"
+
+    execute(
+        cwd=Path("src/kvraft1"),
         command=case,
         race=race,
         sequence=not parallel,
