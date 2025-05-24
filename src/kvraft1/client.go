@@ -25,7 +25,7 @@ func MakeClerk(clnt *tester.Clnt, servers []string) kvtest.IKVClerk {
 }
 
 func (ck *Clerk) wait() {
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 }
 
 // Get fetches the current value and version for a key.  It returns
@@ -52,6 +52,7 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 			ck.wait()
 		} else if reply.Err == rpc.ErrWrongLeader {
 			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
+			ck.wait()
 		} else {
 			return reply.Value, reply.Version, reply.Err
 		}
@@ -94,6 +95,7 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 			ck.wait()
 		} else if reply.Err == rpc.ErrWrongLeader {
 			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
+			ck.wait()
 		} else {
 			// if we got `ErrVersion` with maybe, then this is not the first time we send it.
 			// we need to return `ErrMaybe` since we don't know the previous rpc was success or not
