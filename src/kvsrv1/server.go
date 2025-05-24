@@ -1,7 +1,6 @@
 package kvsrv
 
 import (
-	"log"
 	"sync"
 
 	"6.5840/kvsrv1/rpc"
@@ -9,14 +8,7 @@ import (
 	tester "6.5840/tester1"
 )
 
-const Debug = false
 
-func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug {
-		log.Printf(format, a...)
-	}
-	return
-}
 
 type keyValue struct {
 	value   string
