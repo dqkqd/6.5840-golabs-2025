@@ -1,6 +1,9 @@
 package kvraft
 
 import (
+	"sync/atomic"
+	"time"
+
 	"6.5840/kvsrv1/rpc"
 	kvtest "6.5840/kvtest1"
 	tester "6.5840/tester1"
@@ -10,12 +13,18 @@ type Clerk struct {
 	clnt    *tester.Clnt
 	servers []string
 	// You will have to modify this struct.
+	leader atomic.Int64
 }
 
 func MakeClerk(clnt *tester.Clnt, servers []string) kvtest.IKVClerk {
 	ck := &Clerk{clnt: clnt, servers: servers}
 	// You'll have to add code here.
+	ck.leader = atomic.Int64{}
 	return ck
+}
+
+func (ck *Clerk) wait() {
+	time.Sleep(100 * time.Millisecond)
 }
 
 // Get fetches the current value and version for a key.  It returns
@@ -30,7 +39,19 @@ func MakeClerk(clnt *tester.Clnt, servers []string) kvtest.IKVClerk {
 // arguments. Additionally, reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	// You will have to modify this function.
-	return "", 0, ""
+	args := rpc.GetArgs{Key: key}
+	for {
+		leader := ck.leader.Load()
+		reply := rpc.GetReply{}
+		ok := ck.clnt.Call(ck.servers[leader], "KVServer.Get", &args, &reply)
+		if !ok {
+			ck.wait()
+		} else if reply.Err == rpc.ErrWrongLeader {
+			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
+		} else {
+			return reply.Value, reply.Version, reply.Err
+		}
+	}
 }
 
 // Put updates key with value only if the version in the
@@ -52,5 +73,26 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 // arguments. Additionally, reply must be passed as a pointer.
 func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 	// You will have to modify this function.
-	return ""
+	args := rpc.PutArgs{Key: key, Value: value, Version: version}
+	maybe := false
+	for {
+		leader := ck.leader.Load()
+		reply := rpc.PutReply{}
+		ok := ck.clnt.Call(ck.servers[leader], "KVServer.Put", &args, &reply)
+
+		if !ok {
+			// we might have successfully put this key into the server but the response was lost
+			maybe = true
+			ck.wait()
+		} else if reply.Err == rpc.ErrWrongLeader {
+			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
+		} else {
+			// if we got `ErrVersion` with maybe, then this is not the first time we send it.
+			// we need to return `ErrMaybe` since we don't know the previous rpc was success or not
+			if maybe && reply.Err == rpc.ErrVersion {
+				return rpc.ErrMaybe
+			}
+			return reply.Err
+		}
+	}
 }
