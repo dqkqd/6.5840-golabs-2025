@@ -82,8 +82,8 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 		maxraftstate:      maxraftstate,
 		applyCh:           make(chan raftapi.ApplyMsg),
 		sm:                sm,
-		addWaitSubmitCh:   make(chan waitSubmitCh, 1000),
-		closeWaitSubmitCh: make(chan uuid.UUID, 1000),
+		addWaitSubmitCh:   make(chan waitSubmitCh),
+		closeWaitSubmitCh: make(chan uuid.UUID),
 	}
 	if !useRaftStateMachine {
 		rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
