@@ -24,10 +24,6 @@ func MakeClerk(clnt *tester.Clnt, servers []string) kvtest.IKVClerk {
 	return ck
 }
 
-func (ck *Clerk) wait() {
-	time.Sleep(50 * time.Millisecond)
-}
-
 // Get fetches the current value and version for a key.  It returns
 // ErrNoKey if the key does not exist. It keeps trying forever in the
 // face of all other errors.
@@ -47,12 +43,8 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 		DPrintf(tClerkGet, "C%p get args=%v from leader=%d", ck.clnt, args, leader)
 		ok := ck.clnt.Call(ck.servers[leader], "KVServer.Get", &args, &reply)
 		DPrintf(tClerkGet, "C%p, ok=%v, get args=%v from leader=%d, return %v", ck.clnt, ok, args, leader, reply)
-		if !ok {
-			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
-			ck.wait()
-		} else if reply.Err == rpc.ErrWrongLeader {
-			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
-			ck.wait()
+		if !ok || reply.Err == rpc.ErrWrongLeader {
+			ck.waitAndChangeLeader(leader)
 		} else {
 			return reply.Value, reply.Version, reply.Err
 		}
@@ -88,14 +80,11 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 		ok := ck.clnt.Call(ck.servers[leader], "KVServer.Put", &args, &reply)
 		DPrintf(tClerkPut, "C%p, ok=%v put args=%v to leader=%d, return %v", ck.clnt, ok, args, leader, reply)
 
-		if !ok {
-			// we might have successfully put this key into the server but the response was lost
+		if !ok || reply.Err == rpc.ErrWrongLeader {
+			// we might have successfully put this key into the server but the response was lost or,
+			// we send request to a non leader, but it might be elected as the new leader right after that.
 			maybe = true
-			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
-			ck.wait()
-		} else if reply.Err == rpc.ErrWrongLeader {
-			ck.leader.CompareAndSwap(leader, (leader+1)%int64(len(ck.servers)))
-			ck.wait()
+			ck.waitAndChangeLeader(leader)
 		} else {
 			// if we got `ErrVersion` with maybe, then this is not the first time we send it.
 			// we need to return `ErrMaybe` since we don't know the previous rpc was success or not
@@ -106,4 +95,9 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 		}
 		DPrintf(tClerkPut, "C%p Change leader from %d to %d", ck.clnt, leader, ck.leader.Load())
 	}
+}
+
+func (ck *Clerk) waitAndChangeLeader(currentLeader int64) {
+	time.Sleep(50 * time.Millisecond)
+	ck.leader.CompareAndSwap(currentLeader, (currentLeader+1)%int64(len(ck.servers)))
 }
