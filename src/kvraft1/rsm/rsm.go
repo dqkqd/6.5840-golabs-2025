@@ -88,6 +88,10 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 	if !useRaftStateMachine {
 		rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
 	}
+	snapshot := persister.ReadSnapshot()
+	if len(snapshot) > 0 {
+		rsm.sm.Restore(snapshot)
+	}
 	DPrintf(tStart, "S%d: start rsm", rsm.me)
 
 	// reader goroutines
@@ -168,16 +172,33 @@ func (rsm *RSM) runReader() {
 				DPrintf(tStop, "S%d: applyCh closed, stop operation", rsm.me)
 				return
 			}
-			op := msg.Command.(Op)
-			DPrintf(tApply, "S%d <- S%d: received from applyCh, op=%+v", rsm.me, op.Me, op)
-			res := rsm.sm.DoOp(op.Req)
-			DPrintf(tDoOp, "S%d, DoOp res=%+v", rsm.me, res)
-			if op.Me == rsm.me {
-				w, ok := waitCh[op.Id]
-				if ok {
-					DPrintf(tReturn, "S%d, send returned op=%+v, res=%+v", rsm.me, op, res)
-					w <- ReturnOp{opId: op.Id, result: res, commandIndex: msg.CommandIndex}
+
+			DPrintf(tApply, "S%d: msg=%+v", rsm.me, msg)
+
+			if msg.CommandValid {
+				op := msg.Command.(Op)
+				DPrintf(tApply, "S%d <- S%d: received from applyCh, msg=%+v, op=%+v", rsm.me, op.Me, msg, op)
+				res := rsm.sm.DoOp(op.Req)
+				DPrintf(tDoOp, "S%d, DoOp res=%+v", rsm.me, res)
+				if op.Me == rsm.me {
+					w, ok := waitCh[op.Id]
+					if ok {
+						DPrintf(tReturn, "S%d, send returned msg=%+v, op=%+v, res=%+v", rsm.me, msg, op, res)
+						w <- ReturnOp{opId: op.Id, result: res, commandIndex: msg.CommandIndex}
+					}
 				}
+
+				if rsm.maxraftstate != -1 {
+					// truncate the log if the size >= 80%
+					if rsm.Raft().PersistBytes()*10 >= rsm.maxraftstate*8 {
+						DPrintf(tSnapshot, "S%d, taking snapshot msg=%+v, op=%+v, res=%+v", rsm.me, msg, op, res)
+						snapshot := rsm.sm.Snapshot()
+						rsm.Raft().Snapshot(msg.CommandIndex, snapshot)
+					}
+				}
+			} else if msg.SnapshotValid {
+				DPrintf(tRestore, "S%d, restore from snapshot msg=%+v", rsm.me, msg)
+				rsm.sm.Restore(msg.Snapshot)
 			}
 
 		case w := <-rsm.addWaitSubmitCh:

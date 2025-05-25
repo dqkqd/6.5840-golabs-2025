@@ -28,19 +28,18 @@ type (
 )
 
 const (
-	tDoOp      logTopic = "DOOP"
-	tServerGet logTopic = "SGET"
-	tServerPut logTopic = "SPUT"
-	tClerkGet  logTopic = "CGET"
-	tClerkPut  logTopic = "CPUT"
-	tSubmitErr logTopic = "SUBE"
-	tStop      logTopic = "STOP"
-	tStart     logTopic = "STRT"
-
-	tElection        logTopic = "ELCT"
+	tDoOp            logTopic = "DOOP"
+	tServerGet       logTopic = "SGET"
+	tServerPut       logTopic = "SPUT"
+	tClerkGet        logTopic = "CGET"
+	tClerkPut        logTopic = "CPUT"
+	tSubmitErr       logTopic = "SUBE"
+	tStop            logTopic = "STOP"
+	tStart           logTopic = "STRT"
 	tSnapshot        logTopic = "SNAP"
-	tSendSnapshot    logTopic = "SSNP"
+	tRestore         logTopic = "REST"
 	tReceiveSnapshot logTopic = "RSNP"
+	tElection        logTopic = "ELCT"
 )
 
 const (
@@ -106,7 +105,7 @@ func (t logTopic) color() logColor {
 			return tColorPurple
 		case tSnapshot:
 			return tColorDarkOrange
-		case tSendSnapshot:
+		case tRestore:
 			return tColorGold
 		case tReceiveSnapshot:
 			return tColorOrange

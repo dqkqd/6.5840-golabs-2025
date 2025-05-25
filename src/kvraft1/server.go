@@ -1,6 +1,7 @@
 package kvraft
 
 import (
+	"bytes"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -21,41 +22,36 @@ const (
 )
 
 type keyValue struct {
-	value   string
-	version uint64
+	Value   string
+	Version uint64
 }
 
 type keyValueStore struct {
-	mu   sync.Mutex
 	data map[string]keyValue
 }
 
 func (s *keyValueStore) get(key string) (keyValue, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	v, ok := s.data[key]
 	return v, ok
 }
 
 func (s *keyValueStore) put(key, value string, version uint64) kvErr {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if version == 0 {
 		_, ok := s.data[key]
 		if ok {
 			return kvErrVersion
 		}
-		s.data[key] = keyValue{version: 1, value: value}
+		s.data[key] = keyValue{Version: 1, Value: value}
 		return kvErrOk
 	} else {
 		v, ok := s.data[key]
 		if !ok {
 			return kvErrNoKey
 		}
-		if v.version != version {
+		if v.Version != version {
 			return kvErrVersion
 		}
-		s.data[key] = keyValue{version: version + 1, value: value}
+		s.data[key] = keyValue{Version: version + 1, Value: value}
 		return kvErrOk
 	}
 }
@@ -66,6 +62,7 @@ type KVServer struct {
 	rsm  *rsm.RSM
 
 	// Your definitions here.
+	mu    sync.Mutex
 	store keyValueStore
 }
 
@@ -76,15 +73,16 @@ type KVServer struct {
 // https://go.dev/tour/methods/15
 func (kv *KVServer) DoOp(req any) any {
 	// Your code here
-	DPrintf(tDoOp, "S%d, req=%+v", kv.me, req)
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
 	switch r := req.(type) {
 	case rpc.GetArgs:
 		reply := rpc.GetReply{}
 		v, ok := kv.store.get(r.Key)
 		if ok {
 			reply.Err = rpc.OK
-			reply.Value = v.value
-			reply.Version = rpc.Tversion(v.version)
+			reply.Value = v.Value
+			reply.Version = rpc.Tversion(v.Version)
 		} else {
 			reply.Err = rpc.ErrNoKey
 		}
@@ -113,11 +111,25 @@ func (kv *KVServer) DoOp(req any) any {
 
 func (kv *KVServer) Snapshot() []byte {
 	// Your code here
-	return nil
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(kv.store.data)
+	DPrintf(tSnapshot, "S%d store: %+v", kv.me, kv.store)
+	return w.Bytes()
 }
 
 func (kv *KVServer) Restore(data []byte) {
 	// Your code here
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	if d.Decode(&kv.store.data) != nil {
+		log.Fatalf("%v couldn't decode snapshot", kv.me)
+	}
+	DPrintf(tRestore, "S%d store: %+v", kv.me, kv.store)
 }
 
 func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
@@ -182,8 +194,8 @@ func StartKVServer(servers []*labrpc.ClientEnd, gid tester.Tgid, me int, persist
 
 	kv := &KVServer{me: me}
 
+	kv.store = keyValueStore{data: make(map[string]keyValue)}
 	kv.rsm = rsm.MakeRSM(servers, me, persister, maxraftstate, kv)
 	// You may need initialization code here.
-	kv.store = keyValueStore{data: make(map[string]keyValue)}
 	return []tester.IService{kv, kv.rsm.Raft()}
 }

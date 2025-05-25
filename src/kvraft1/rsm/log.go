@@ -36,10 +36,10 @@ const (
 	tSubmitErr logTopic = "SUBE"
 	tStop      logTopic = "STOP"
 	tStart     logTopic = "STRT"
+	tSnapshot  logTopic = "SNAP"
+	tRestore   logTopic = "REST"
 
 	tElection        logTopic = "ELCT"
-	tSnapshot        logTopic = "SNAP"
-	tSendSnapshot    logTopic = "SSNP"
 	tReceiveSnapshot logTopic = "RSNP"
 )
 
@@ -106,7 +106,7 @@ func (t logTopic) color() logColor {
 			return tColorPurple
 		case tSnapshot:
 			return tColorDarkOrange
-		case tSendSnapshot:
+		case tRestore:
 			return tColorGold
 		case tReceiveSnapshot:
 			return tColorOrange
