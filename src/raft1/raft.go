@@ -286,6 +286,16 @@ func (rf *Raft) AppendEntries(rawargs *AppendEntriesArgs, reply *AppendEntriesRe
 		)
 		return
 	}
+	// if log index < 0 reply with the index in the snapshot
+	if args.PrevLogIndex < 0 {
+		reply.XTerm = OptionInt{Value: rf.log[0].Term, Some: true}
+		reply.XIndex = OptionInt{Value: 0, Some: true}
+		DPrintf(tReceiveAppend,
+			"S%d(%d,%v) <- S%d(%d), append reject, prevLogIndex < 0, reply=%+v",
+			rf.me, rf.currentTerm, rf.state, args.LeaderId, args.Term, reply,
+		)
+		return
+	}
 	// conflict term
 	xTerm := rf.log[args.PrevLogIndex].Term
 	if xTerm != args.PrevLogTerm {
