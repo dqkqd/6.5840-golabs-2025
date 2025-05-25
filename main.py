@@ -36,23 +36,28 @@ class RaftCommand(enum.StrEnum):
 class RSMCommand(enum.StrEnum):
     Test4A = "4A"
     TestRestartReplay4A = "TestRestartReplay4A"
+    TestRestartSubmit4A = "TestRestartSubmit4A"
 
 
 @enum.unique
 class KvRaftCommand(enum.StrEnum):
     Test4B = "4B"
+    Test4C = "4C"
+    TestSnapshotRecover4C = "TestSnapshotRecover4C"
     TestBasic4B = "TestBasic4B"
-    TestSpeed4B = "TestSpeed4B"
     TestConcurrent4B = "TestConcurrent4B"
-    TestUnreliable4B = "TestUnreliable4B"
-    TestOnePartition4B = "TestOnePartition4B"
-    TestManyPartitionsOneClient4B = "TestManyPartitionsOneClient4B"
     TestManyPartitionsManyClients4B = "TestManyPartitionsManyClients4B"
+    TestManyPartitionsOneClient4B = "TestManyPartitionsOneClient4B"
+    TestOnePartition4B = "TestOnePartition4B"
+    TestSnapshotRecoverManyClients4C = "TestSnapshotRecoverManyClients4C"
+    TestSnapshotUnreliable4C = "TestSnapshotUnreliable4C"
+    TestSpeed4B = "TestSpeed4B"
+    TestUnreliable4B = "TestUnreliable4B"
 
 
 @app.command()
 def raft(
-    case: Annotated[RaftCommand, typer.Option(case_sensitive=False)],
+    case: Annotated[RaftCommand, typer.Option(case_sensitive=False)] | None = None,
     iterations: int = 5,
     verbose: bool = False,
     race: bool = False,
@@ -64,7 +69,7 @@ def raft(
 
     execute(
         cwd=Path("src/raft1"),
-        command=case,
+        case=case,
         race=race,
         sequence=not parallel,
         iterations=iterations,
@@ -74,7 +79,7 @@ def raft(
 
 @app.command()
 def rsm(
-    case: Annotated[RSMCommand, typer.Option(case_sensitive=False)],
+    case: Annotated[RSMCommand, typer.Option(case_sensitive=False)] | None = None,
     iterations: int = 5,
     verbose: bool = False,
     race: bool = False,
@@ -87,7 +92,7 @@ def rsm(
 
     execute(
         cwd=Path("src/kvraft1/rsm"),
-        command=case,
+        case=case,
         race=race,
         sequence=not parallel,
         iterations=iterations,
@@ -97,7 +102,7 @@ def rsm(
 
 @app.command()
 def kvraft(
-    case: Annotated[KvRaftCommand, typer.Option(case_sensitive=False)],
+    case: Annotated[KvRaftCommand, typer.Option(case_sensitive=False)] | None = None,
     iterations: int = 5,
     verbose: bool = False,
     race: bool = False,
@@ -111,12 +116,36 @@ def kvraft(
 
     execute(
         cwd=Path("src/kvraft1"),
-        command=case,
+        case=case,
         race=race,
         sequence=not parallel,
         iterations=iterations,
         timeout=timeout,
     )
+
+
+@app.command()
+def run_all(
+    iterations: int = 5,
+    verbose: bool = False,
+    race: bool = False,
+    timeout: int = 600,
+    parallel: bool = False,
+):
+    if verbose:
+        os.environ["DEBUG"] = "1"
+        os.environ["RSM_DEBUG"] = "1"
+        os.environ["KVRAFT_DEBUG"] = "1"
+
+    for cwd in [Path("src/raft1"), Path("src/kvraft1/rsm"), Path("src/kvraft1")]:
+        execute(
+            cwd=cwd,
+            case=None,
+            race=race,
+            sequence=not parallel,
+            iterations=iterations,
+            timeout=timeout,
+        )
 
 
 @app.command()
@@ -132,7 +161,7 @@ def extract_log(path: Path, pattern: str):
 
 def execute(
     cwd: Path,
-    command: str,
+    case: str | None,
     race: bool,
     sequence: bool,
     iterations: int,
@@ -140,12 +169,14 @@ def execute(
 ):
     shutil.rmtree(output_dir())
 
-    command = f"go test -run {command}"
+    command = "go test -v"
+    if case is not None:
+        command = f"{command} -run {case}"
     if race:
         command += " --race"
 
     print(
-        f"Running `{command}` in {"sequence" if sequence else "parallel" } with {iterations} iterations"
+        f"Running `{command}` in {cwd} ({"sequence" if sequence else "parallel"}, iterations={iterations}, timeout={timeout}s)"
     )
 
     if sequence:
@@ -186,7 +217,7 @@ def run_command(cwd: Path, command: str, timeout: int):
             _ = process.wait()
             print(f"Command {command}, timeout after {timeout}s")
 
-    failed_keys = ["FAIL", "DATA RACE", "warning:", "Fatal"]
+    failed_keys = ["FAIL", "DATA RACE", "warning:", "Fatal", "panic:"]
     with output_file.open() as f:
         for line in f:
             for k in failed_keys:
