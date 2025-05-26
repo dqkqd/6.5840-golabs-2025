@@ -75,6 +75,7 @@ func (rs *rsmSrv) Snapshot() []byte {
 func (rs *rsmSrv) Restore(data []byte) {
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
+	rs.counter = 0
 	if d.Decode(&rs.counter) != nil {
 		log.Fatalf("%v couldn't decode counter", rs.me)
 	}
