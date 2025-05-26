@@ -83,7 +83,7 @@ func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, m
 		applyCh:           make(chan raftapi.ApplyMsg),
 		sm:                sm,
 		addWaitSubmitCh:   make(chan waitSubmitCh),
-		closeWaitSubmitCh: make(chan uuid.UUID),
+		closeWaitSubmitCh: make(chan uuid.UUID, 1000),
 	}
 	if !useRaftStateMachine {
 		rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
@@ -116,7 +116,12 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 	op := Op{Me: rsm.me, Id: uuid.New(), Req: req}
 
 	w := make(chan ReturnOp)
-	rsm.addWaitSubmitCh <- waitSubmitCh{id: op.Id, ch: w}
+	select {
+	case rsm.addWaitSubmitCh <- waitSubmitCh{id: op.Id, ch: w}:
+	case <-time.After(1 * time.Second):
+		return rpc.ErrWrongLeader, nil
+	}
+
 	defer func() { rsm.closeWaitSubmitCh <- op.Id }()
 
 	expectedIndex, term, isLeader := rsm.rf.Start(op)
