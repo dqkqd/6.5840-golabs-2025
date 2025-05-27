@@ -9,9 +9,13 @@ package shardkv
 //
 
 import (
+	"log"
+
 	"6.5840/kvsrv1/rpc"
 	kvtest "6.5840/kvtest1"
+	"6.5840/shardkv1/shardcfg"
 	"6.5840/shardkv1/shardctrler"
+	"6.5840/shardkv1/shardgrp"
 	tester "6.5840/tester1"
 )
 
@@ -39,11 +43,25 @@ func MakeClerk(clnt *tester.Clnt, sck *shardctrler.ShardCtrler) kvtest.IKVClerk 
 // calling shardgrp.MakeClerk(ck.clnt, servers).
 func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	// You will have to modify this function.
-	return "", 0, ""
+	sh := shardcfg.Key2Shard(key)
+	cfg := ck.sck.Query()
+	_, servers, ok := cfg.GidServers(sh)
+	if !ok {
+		log.Fatalf("cannot get servers for shard %v, from key %v", sh, key)
+	}
+	c := shardgrp.MakeClerk(ck.clnt, servers)
+	return c.Get(key)
 }
 
 // Put a key to a shard group.
 func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 	// You will have to modify this function.
-	return ""
+	sh := shardcfg.Key2Shard(key)
+	cfg := ck.sck.Query()
+	_, servers, ok := cfg.GidServers(sh)
+	if !ok {
+		log.Fatalf("cannot get servers for shard %v, from key %v", sh, key)
+	}
+	c := shardgrp.MakeClerk(ck.clnt, servers)
+	return c.Put(key, value, version)
 }
