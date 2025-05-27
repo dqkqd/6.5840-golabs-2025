@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
+	kvtest "6.5840/kvtest1"
 	"6.5840/shardkv1/shardcfg"
 	"6.5840/shardkv1/shardctrler"
-	"6.5840/tester1"
+	tester "6.5840/tester1"
 )
 
 const (
@@ -20,7 +20,6 @@ const (
 // Test shard controller's Init and Query with a key/value server from
 // kvsrv1 lab.
 func TestInitQuery5A(t *testing.T) {
-
 	// MakeTest starts your lab2 key/value server using
 	// `kvsrv.StartKVServer`.
 	ts := MakeTest(t, "Test (5A): Init and Query ...", true)
@@ -34,7 +33,7 @@ func TestInitQuery5A(t *testing.T) {
 
 	// Compute a new shard configuration as if `shardcfg.Gid1` joins  the cluster,
 	// assigning all shards to `shardcfg.Gid1`.
-	scfg.JoinBalance(map[tester.Tgid][]string{shardcfg.Gid1: []string{"xxx"}})
+	scfg.JoinBalance(map[tester.Tgid][]string{shardcfg.Gid1: {"xxx"}})
 
 	// Invoke the controller to initialize to store the first configuration
 	sck.InitConfig(scfg)
@@ -289,7 +288,7 @@ func TestProgressShutdown5A(t *testing.T) {
 
 	end := 2
 	for _, g := range grps[0:2] {
-		//log.Printf("shutdown %d", g)
+		// log.Printf("shutdown %d", g)
 		ts.Group(g).Shutdown()
 	}
 
@@ -306,7 +305,7 @@ func TestProgressShutdown5A(t *testing.T) {
 			s := shardcfg.Key2Shard(ka[i])
 			g := cfg.Shards[s]
 			if _, ok := alive[g]; ok {
-				//log.Printf("key lookup %v(%d) gid %d", ka[i], s, g)
+				// log.Printf("key lookup %v(%d) gid %d", ka[i], s, g)
 				ts.CheckGet(ck, ka[i], va[i], rpc.Tversion(1))
 			}
 		}
@@ -343,7 +342,7 @@ func TestProgressJoin5A(t *testing.T) {
 	cfg := sck.Query()
 	newcfg := cfg.Copy()
 	newgid := tester.Tgid(NJOIN + 3)
-	if ok := newcfg.JoinBalance(map[tester.Tgid][]string{newgid: []string{"xxx"}}); !ok {
+	if ok := newcfg.JoinBalance(map[tester.Tgid][]string{newgid: {"xxx"}}); !ok {
 		t.Fatalf("JoinBalance failed")
 	}
 	newcfg1 := newcfg.Copy()
@@ -363,8 +362,8 @@ func TestProgressJoin5A(t *testing.T) {
 		}
 	}
 
-	//log.Printf("groups participating %v stable %v", participating, stable)
-	//log.Printf("\ncfg %v\n %v\n %v", cfg.Shards, newcfg.Shards, newcfg1.Shards)
+	// log.Printf("groups participating %v stable %v", participating, stable)
+	// log.Printf("\ncfg %v\n %v\n %v", cfg.Shards, newcfg.Shards, newcfg1.Shards)
 
 	ch0 := make(chan rpc.Err)
 	go func() {
@@ -373,7 +372,7 @@ func TestProgressJoin5A(t *testing.T) {
 			case <-ch0:
 				return
 			default:
-				//log.Printf("join/leave %v", newgid)
+				// log.Printf("join/leave %v", newgid)
 				if ok := ts.joinGroups(sck, []tester.Tgid{newgid}); !ok {
 					t.Fatalf("TestProgressJoin: join failed")
 				}
@@ -408,7 +407,7 @@ func TestProgressJoin5A(t *testing.T) {
 
 	select {
 	case cnt := <-ch1:
-		//log.Printf("cnt %d", cnt)
+		// log.Printf("cnt %d", cnt)
 		if cnt < NCNT {
 			ts.Fatalf("Two few gets finished %d; expected more than %d", cnt, NCNT)
 		}

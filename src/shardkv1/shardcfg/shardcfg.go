@@ -7,6 +7,8 @@ import (
 	"runtime/debug"
 	"slices"
 	"testing"
+
+	tester "6.5840/tester1"
 )
 
 type (
