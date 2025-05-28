@@ -28,6 +28,7 @@ type keyValue struct {
 
 type keyValueStore struct {
 	data map[string]keyValue
+	mu   sync.Mutex
 }
 
 func (s *keyValueStore) get(key string) (keyValue, bool) {
@@ -62,7 +63,6 @@ type KVServer struct {
 	rsm  *rsm.RSM
 
 	// Your definitions here.
-	mu    sync.Mutex
 	store keyValueStore
 }
 
@@ -73,8 +73,8 @@ type KVServer struct {
 // https://go.dev/tour/methods/15
 func (kv *KVServer) DoOp(req any) any {
 	// Your code here
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
+	kv.store.mu.Lock()
+	defer kv.store.mu.Unlock()
 	switch r := req.(type) {
 	case rpc.GetArgs:
 		reply := rpc.GetReply{}
@@ -111,25 +111,25 @@ func (kv *KVServer) DoOp(req any) any {
 
 func (kv *KVServer) Snapshot() []byte {
 	// Your code here
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
+	kv.store.mu.Lock()
+	defer kv.store.mu.Unlock()
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(kv.store.data)
-	DPrintf(tSnapshot, "S%d store: %+v", kv.me, kv.store)
+	DPrintf(tSnapshot, "S%d store: %+v", kv.me, kv.store.data)
 	return w.Bytes()
 }
 
 func (kv *KVServer) Restore(data []byte) {
 	// Your code here
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
+	kv.store.mu.Lock()
+	defer kv.store.mu.Unlock()
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
 	if d.Decode(&kv.store.data) != nil {
 		log.Fatalf("%v couldn't decode snapshot", kv.me)
 	}
-	DPrintf(tRestore, "S%d store: %+v", kv.me, kv.store)
+	DPrintf(tRestore, "S%d store: %+v", kv.me, kv.store.data)
 }
 
 func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
