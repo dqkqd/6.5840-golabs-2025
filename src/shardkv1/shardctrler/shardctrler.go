@@ -60,6 +60,16 @@ func (sck *ShardCtrler) InitConfig(cfg *shardcfg.ShardConfig) {
 // controller.
 func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 	// Your code here.
+	cfg := sck.Query()
+	for shid := range shardcfg.NShards {
+		oldG := cfg.Shards[shid]
+		newG := new.Shards[shid]
+		if oldG != newG {
+			// freeze old
+			// add new
+			// delete old
+		}
+	}
 }
 
 // Return the current configuration

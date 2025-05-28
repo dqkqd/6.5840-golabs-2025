@@ -29,8 +29,9 @@ type keyValue struct {
 }
 
 type keyValueStore struct {
-	data map[string]keyValue
-	mu   sync.Mutex
+	mu      sync.Mutex
+	data    map[string]keyValue
+	freezed bool
 }
 
 func (s *keyValueStore) get(key string) (keyValue, bool) {
@@ -87,6 +88,11 @@ func (kv *KVServer) DoOp(req any) any {
 
 		store.mu.Lock()
 		defer store.mu.Unlock()
+		if store.freezed {
+			reply.Err = rpc.ErrWrongGroup
+			return reply
+		}
+
 		v, ok := store.get(r.Key)
 		if ok {
 			reply.Err = rpc.OK
@@ -112,6 +118,11 @@ func (kv *KVServer) DoOp(req any) any {
 
 		store.mu.Lock()
 		defer store.mu.Unlock()
+		if store.freezed {
+			reply.Err = rpc.ErrWrongGroup
+			return reply
+		}
+
 		err := store.put(r.Key, r.Value, uint64(r.Version))
 		switch err {
 		case kvErrOk:
@@ -221,16 +232,57 @@ func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 // shard) and return the key/values stored in that shard.
 func (kv *KVServer) FreezeShard(args *shardrpc.FreezeShardArgs, reply *shardrpc.FreezeShardReply) {
 	// Your code here
+	// TODO: reject old num
+	kv.mu.Lock()
+	store, ok := kv.store[args.Shard]
+	kv.mu.Unlock()
+	reply.Num = args.Num
+	if !ok {
+		// empty data, create one
+		store = &keyValueStore{data: make(map[string]keyValue)}
+		kv.store[args.Shard] = store
+	}
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.freezed = true
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(store.data)
+	reply.State = w.Bytes()
+	reply.Err = rpc.OK
 }
 
 // Install the supplied state for the specified shard.
 func (kv *KVServer) InstallShard(args *shardrpc.InstallShardArgs, reply *shardrpc.InstallShardReply) {
 	// Your code here
+	// TODO: reject old num
+
+	r := bytes.NewBuffer(args.State)
+	d := labgob.NewDecoder(r)
+	var data map[string]keyValue
+	if d.Decode(&data) != nil {
+		log.Fatalf("%v couldn't decode stored data to install", kv.me)
+	}
+
+	kv.mu.Lock()
+	_, ok := kv.store[args.Shard]
+	kv.mu.Unlock()
+	if ok {
+		panic("Not implemented")
+	}
+	kv.store[args.Shard] = &keyValueStore{data: data}
+	reply.Err = rpc.OK
 }
 
 // Delete the specified shard.
 func (kv *KVServer) DeleteShard(args *shardrpc.DeleteShardArgs, reply *shardrpc.DeleteShardReply) {
 	// Your code here
+	// TODO: reject old num
+	kv.mu.Lock()
+	delete(kv.store, args.Shard)
+	kv.mu.Unlock()
+	reply.Err = rpc.OK
 }
 
 // the tester calls Kill() when a KVServer instance won't
