@@ -10,6 +10,7 @@ import (
 	"6.5840/kvsrv1/rpc"
 	"6.5840/labgob"
 	"6.5840/labrpc"
+	"6.5840/shardkv1/shardcfg"
 	"6.5840/shardkv1/shardgrp/shardrpc"
 	tester "6.5840/tester1"
 )
@@ -29,6 +30,7 @@ type keyValue struct {
 
 type keyValueStore struct {
 	data map[string]keyValue
+	mu   sync.Mutex
 }
 
 func (s *keyValueStore) get(key string) (keyValue, bool) {
@@ -65,17 +67,27 @@ type KVServer struct {
 
 	// Your code here
 	mu    sync.Mutex
-	store keyValueStore
+	store map[shardcfg.Tshid]*keyValueStore
 }
 
 func (kv *KVServer) DoOp(req any) any {
 	// Your code here
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
 	switch r := req.(type) {
 	case rpc.GetArgs:
 		reply := rpc.GetReply{}
-		v, ok := kv.store.get(r.Key)
+
+		shid := shardcfg.Key2Shard(r.Key)
+		kv.mu.Lock()
+		store, ok := kv.store[shid]
+		kv.mu.Unlock()
+		if !ok {
+			reply.Err = rpc.ErrNoKey
+			return reply
+		}
+
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		v, ok := store.get(r.Key)
 		if ok {
 			reply.Err = rpc.OK
 			reply.Value = v.Value
@@ -88,7 +100,19 @@ func (kv *KVServer) DoOp(req any) any {
 
 	case rpc.PutArgs:
 		reply := rpc.PutReply{}
-		err := kv.store.put(r.Key, r.Value, uint64(r.Version))
+
+		shid := shardcfg.Key2Shard(r.Key)
+		kv.mu.Lock()
+		store, ok := kv.store[shid]
+		if !ok {
+			store = &keyValueStore{data: make(map[string]keyValue)}
+			kv.store[shid] = store
+		}
+		kv.mu.Unlock()
+
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		err := store.put(r.Key, r.Value, uint64(r.Version))
 		switch err {
 		case kvErrOk:
 			reply.Err = rpc.OK
@@ -110,9 +134,17 @@ func (kv *KVServer) Snapshot() []byte {
 	// Your code here
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
+
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
-	e.Encode(kv.store.data)
+
+	e.Encode(len(kv.store))
+	for shid, store := range kv.store {
+		store.mu.Lock()
+		e.Encode(shid)
+		e.Encode(store.data)
+		store.mu.Unlock()
+	}
 	// DPrintf(tSnapshot, "S%d store: %+v", kv.me, kv.store)
 	return w.Bytes()
 }
@@ -121,10 +153,34 @@ func (kv *KVServer) Restore(data []byte) {
 	// Your code here
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
+
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
-	if d.Decode(&kv.store.data) != nil {
-		log.Fatalf("%v couldn't decode snapshot", kv.me)
+
+	var size int
+	if d.Decode(&size) != nil {
+		log.Fatalf("%v couldn't decode size of the stores", kv.me)
+	}
+
+	for range size {
+		var shid shardcfg.Tshid
+		var data map[string]keyValue
+
+		if d.Decode(&shid) != nil {
+			log.Fatalf("%v couldn't decode shard id", kv.me)
+		}
+		if d.Decode(&data) != nil {
+			log.Fatalf("%v couldn't decode stored data", kv.me)
+		}
+
+		store, ok := kv.store[shid]
+		if !ok {
+			kv.store[shid] = &keyValueStore{data: data}
+		} else {
+			store.mu.Lock()
+			kv.store[shid].data = data
+			store.mu.Unlock()
+		}
 	}
 	// DPrintf(tRestore, "S%d store: %+v", kv.me, kv.store)
 }
@@ -210,7 +266,7 @@ func StartServerShardGrp(servers []*labrpc.ClientEnd, gid tester.Tgid, me int, p
 	labgob.Register(rsm.Op{})
 
 	kv := &KVServer{gid: gid, me: me}
-	kv.store = keyValueStore{data: make(map[string]keyValue)}
+	kv.store = make(map[shardcfg.Tshid]*keyValueStore)
 	kv.rsm = rsm.MakeRSM(servers, me, persister, maxraftstate, kv)
 	// Your code here
 	return []tester.IService{kv, kv.rsm.Raft()}
