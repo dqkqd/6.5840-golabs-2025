@@ -179,7 +179,9 @@ def run_all(
 
 
 @app.command()
-def extract_log(path: Path, pattern: str):
+def extract_log(pattern: str):
+    outdir = output_dir()
+    path = next(outdir.glob("*"))
     new_output_file = path.with_suffix(".out")
     new_output_file.touch()
 
