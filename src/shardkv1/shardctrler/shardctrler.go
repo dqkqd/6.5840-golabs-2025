@@ -27,6 +27,8 @@ type ShardCtrler struct {
 
 // Make a ShardCltler, which stores its state in a kvsrv.
 func MakeShardCtrler(clnt *tester.Clnt) *ShardCtrler {
+	logInit()
+
 	sck := &ShardCtrler{clnt: clnt}
 	srv := tester.ServerName(tester.GRP0, 0)
 	sck.IKVClerk = kvsrv.MakeClerk(clnt, srv)

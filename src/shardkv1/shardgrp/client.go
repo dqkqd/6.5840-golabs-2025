@@ -18,6 +18,7 @@ type Clerk struct {
 }
 
 func MakeClerk(clnt *tester.Clnt, servers []string) *Clerk {
+	logInit()
 	ck := &Clerk{clnt: clnt, servers: servers}
 	ck.leader = atomic.Int64{}
 	return ck
@@ -29,15 +30,15 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	for {
 		leader := ck.leader.Load()
 		reply := rpc.GetReply{}
-		// DPrintf(tClerkGet, "C%p get args=%v from leader=%d", ck.clnt, args, leader)
+		DPrintf(tClerkGet, "C%p get args=%v from leader=%d", ck.clnt, args, leader)
 		ok := ck.clnt.Call(ck.servers[leader], "KVServer.Get", &args, &reply)
-		// DPrintf(tClerkGet, "C%p, ok=%v, get args=%v from leader=%d, return %v", ck.clnt, ok, args, leader, reply)
+		DPrintf(tClerkGet, "C%p, ok=%v, get args=%v from leader=%d, return %v", ck.clnt, ok, args, leader, reply)
 		if !ok || reply.Err == rpc.ErrWrongLeader {
 			ck.waitAndChangeLeader(leader)
 		} else {
 			return reply.Value, reply.Version, reply.Err
 		}
-		// DPrintf(tClerkGet, "C%p, Change leader from %d to %d", ck.clnt, leader, ck.leader.Load())
+		DPrintf(tClerkGet, "C%p, Change leader from %d to %d", ck.clnt, leader, ck.leader.Load())
 	}
 }
 
@@ -48,9 +49,9 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 	for {
 		leader := ck.leader.Load()
 		reply := rpc.PutReply{}
-		// DPrintf(tClerkPut, "C%p put args=%v to leader=%d", ck.clnt, args, leader)
+		DPrintf(tClerkPut, "C%p put args=%v to leader=%d", ck.clnt, args, leader)
 		ok := ck.clnt.Call(ck.servers[leader], "KVServer.Put", &args, &reply)
-		// DPrintf(tClerkPut, "C%p, ok=%v put args=%v to leader=%d, return %v", ck.clnt, ok, args, leader, reply)
+		DPrintf(tClerkPut, "C%p, ok=%v put args=%v to leader=%d, return %v", ck.clnt, ok, args, leader, reply)
 
 		if !ok || reply.Err == rpc.ErrWrongLeader {
 			// we might have successfully put this key into the server but the response was lost or,
@@ -65,7 +66,7 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 			}
 			return reply.Err
 		}
-		// DPrintf(tClerkPut, "C%p Change leader from %d to %d", ck.clnt, leader, ck.leader.Load())
+		DPrintf(tClerkPut, "C%p Change leader from %d to %d", ck.clnt, leader, ck.leader.Load())
 	}
 }
 

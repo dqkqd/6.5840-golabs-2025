@@ -28,6 +28,8 @@ type Clerk struct {
 // The tester calls MakeClerk and passes in a shardctrler so that
 // client can call it's Query method
 func MakeClerk(clnt *tester.Clnt, sck *shardctrler.ShardCtrler) kvtest.IKVClerk {
+	logInit()
+
 	ck := &Clerk{
 		clnt: clnt,
 		sck:  sck,

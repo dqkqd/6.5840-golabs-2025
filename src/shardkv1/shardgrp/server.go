@@ -95,7 +95,7 @@ func (kv *KVServer) DoOp(req any) any {
 		} else {
 			reply.Err = rpc.ErrNoKey
 		}
-		// DPrintf(tDoOp, "S%d, get args, req=%v, reply=%v", kv.me, r, reply)
+		DPrintf(tDoOp, "S%d, get args, req=%+v, reply=%+v", kv.me, r, reply)
 		return reply
 
 	case rpc.PutArgs:
@@ -121,7 +121,7 @@ func (kv *KVServer) DoOp(req any) any {
 		case kvErrVersion:
 			reply.Err = rpc.ErrVersion
 		}
-		// DPrintf(tDoOp, "S%d, put args, req=%v, reply=%v", kv.me, r, reply)
+		DPrintf(tDoOp, "S%d, put args, req=%+v, reply=%+v", kv.me, r, reply)
 		return reply
 
 	default:
@@ -145,7 +145,7 @@ func (kv *KVServer) Snapshot() []byte {
 		e.Encode(store.data)
 		store.mu.Unlock()
 	}
-	// DPrintf(tSnapshot, "S%d store: %+v", kv.me, kv.store)
+	DPrintf(tSnapshot, "S%d store: %+v", kv.me, kv.store)
 	return w.Bytes()
 }
 
@@ -182,16 +182,16 @@ func (kv *KVServer) Restore(data []byte) {
 			store.mu.Unlock()
 		}
 	}
-	// DPrintf(tRestore, "S%d store: %+v", kv.me, kv.store)
+	DPrintf(tRestore, "S%d store: %+v", kv.me, kv.store)
 }
 
 func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
 	// Your code here. Use kv.rsm.Submit() to submit args
 	// You can use go's type casts to turn the any return value
 	// of Submit() into a GetReply: rep.(rpc.GetReply)
-	// DPrintf(tServerGet, "S%d, get, req=%v", kv.me, *args)
+	DPrintf(tServerGet, "S%d, get, req=%v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
-	// DPrintf(tServerGet, "S%d, get return, req=%v, ret=%v", kv.me, *args, *reply)
+	DPrintf(tServerGet, "S%d, get return, req=%v, ret=%v", kv.me, *args, *reply)
 	if err == rpc.ErrWrongLeader {
 		reply.Err = err
 	} else {
@@ -206,9 +206,9 @@ func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 	// Your code here. Use kv.rsm.Submit() to submit args
 	// You can use go's type casts to turn the any return value
 	// of Submit() into a PutReply: rep.(rpc.PutReply)
-	// DPrintf(tServerPut, "S%d, put, req=%v", kv.me, *args)
+	DPrintf(tServerPut, "S%d, put, req=%v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
-	// DPrintf(tServerPut, "S%d, put return, req=%v, ret=%v", kv.me, *args, *reply)
+	DPrintf(tServerPut, "S%d, put return, req=%v, ret=%v", kv.me, *args, *reply)
 	if err == rpc.ErrWrongLeader {
 		reply.Err = err
 	} else {
@@ -256,6 +256,7 @@ func (kv *KVServer) killed() bool {
 // StartShardServerGrp() and MakeRSM() must return quickly, so they should
 // start goroutines for any long-running work.
 func StartServerShardGrp(servers []*labrpc.ClientEnd, gid tester.Tgid, me int, persister *tester.Persister, maxraftstate int) []tester.IService {
+	logInit()
 	// call labgob.Register on structures you want
 	// Go's RPC library to marshall/unmarshall.
 	labgob.Register(rpc.PutArgs{})
