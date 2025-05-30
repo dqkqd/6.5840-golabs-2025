@@ -55,6 +55,11 @@ class KvRaftCommand(enum.StrEnum):
     TestUnreliable4B = "TestUnreliable4B"
 
 
+@enum.unique
+class ShardKvCommand(enum.StrEnum):
+    TestJoinLeaveBasic5A = "TestJoinLeaveBasic5A"
+
+
 @app.command()
 def raft(
     case: Annotated[RaftCommand, typer.Option(case_sensitive=False)] | None = None,
@@ -116,6 +121,31 @@ def kvraft(
 
     execute(
         cwd=Path("src/kvraft1"),
+        case=case,
+        race=race,
+        sequence=not parallel,
+        iterations=iterations,
+        timeout=timeout,
+    )
+
+
+@app.command()
+def shardkv(
+    case: Annotated[ShardKvCommand, typer.Option(case_sensitive=False)] | None = None,
+    iterations: int = 5,
+    verbose: bool = False,
+    race: bool = False,
+    timeout: int = 60,
+    parallel: bool = False,
+):
+    if verbose:
+        os.environ["DEBUG"] = "1"
+        os.environ["RSM_DEBUG"] = "1"
+        os.environ["KVRAFT_DEBUG"] = "1"
+        os.environ["SHARDKV_DEBUG"] = "1"
+
+    execute(
+        cwd=Path("src/shardkv1"),
         case=case,
         race=race,
         sequence=not parallel,
