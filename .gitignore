@@ -1,3 +1,4 @@
 pkg/
+output/
 *-handin.tar.gz
 .direnv/
