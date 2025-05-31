@@ -67,8 +67,10 @@ type KVServer struct {
 	gid  tester.Tgid
 
 	// Your code here
-	mu    sync.Mutex
-	store map[shardcfg.Tshid]*keyValueStore
+	store [shardcfg.NShards]*keyValueStore
+
+	mu     sync.Mutex
+	cfgNum shardcfg.Tnum
 }
 
 func (kv *KVServer) DoOp(req any) any {
@@ -78,16 +80,17 @@ func (kv *KVServer) DoOp(req any) any {
 		reply := rpc.GetReply{}
 
 		shid := shardcfg.Key2Shard(r.Key)
-		kv.mu.Lock()
-		store, ok := kv.store[shid]
-		kv.mu.Unlock()
-		if !ok {
-			reply.Err = rpc.ErrNoKey
+
+		store := kv.store[shid]
+		store.mu.Lock()
+		defer store.mu.Unlock()
+
+		if store.freezed {
+			DPrintf(tDoOp, "S%d, get args, reject shard %v is freezed, req=%+v", kv.me, r, shid)
+			reply.Err = rpc.ErrWrongGroup
 			return reply
 		}
 
-		store.mu.Lock()
-		defer store.mu.Unlock()
 		v, ok := store.get(r.Key)
 		if ok {
 			reply.Err = rpc.OK
@@ -103,16 +106,15 @@ func (kv *KVServer) DoOp(req any) any {
 		reply := rpc.PutReply{}
 
 		shid := shardcfg.Key2Shard(r.Key)
-		kv.mu.Lock()
-		store, ok := kv.store[shid]
-		if !ok {
-			store = &keyValueStore{data: make(map[string]keyValue)}
-			kv.store[shid] = store
-		}
-		kv.mu.Unlock()
-
+		store := kv.store[shid]
 		store.mu.Lock()
 		defer store.mu.Unlock()
+
+		if store.freezed {
+			reply.Err = rpc.ErrWrongGroup
+			return reply
+		}
+
 		err := store.put(r.Key, r.Value, uint64(r.Version))
 		switch err {
 		case kvErrOk:
@@ -126,26 +128,33 @@ func (kv *KVServer) DoOp(req any) any {
 		return reply
 
 	case shardrpc.FreezeShardArgs:
-		reply := shardrpc.FreezeShardReply{}
-		kv.mu.Lock()
-		store, ok := kv.store[r.Shard]
-		kv.mu.Unlock()
-		reply.Num = r.Num
-		if !ok {
-			// empty data, create one
-			store = &keyValueStore{data: make(map[string]keyValue)}
-			kv.store[r.Shard] = store
-		}
+		reply := shardrpc.FreezeShardReply{Num: r.Num}
 
+		kv.mu.Lock()
+		if kv.cfgNum > r.Num {
+			kv.mu.Unlock()
+			DPrintf(tDoOp, "S%d(cfg=%d), freeze, receive old num, reject req=%+v", kv.me, kv.cfgNum, r)
+			reply.Err = rpc.ErrWrongGroup
+			return reply
+		}
+		kv.cfgNum = r.Num
+		kv.mu.Unlock()
+
+		store := kv.store[r.Shard]
 		store.mu.Lock()
 		defer store.mu.Unlock()
+
+		if store.freezed {
+			DPrintf(tDoOp, "S%d(cfg=%d), freeze, already freezed reject req=%+v", kv.me, r.Num, r)
+		}
 		store.freezed = true
+
 		w := new(bytes.Buffer)
 		e := labgob.NewEncoder(w)
 		e.Encode(store.data)
 		reply.State = w.Bytes()
 		reply.Err = rpc.OK
-		DPrintf(tDoOp, "S%d, freeze args, req=%+v, store=%+v, replyNum=%+v, replyErr=%+v", kv.me, r, store, reply.Num, reply.Err)
+		DPrintf(tDoOp, "S%d, freeze success, req=%+v, store=%+v, replyNum=%+v, replyErr=%+v", kv.me, r, store, reply.Num, reply.Err)
 		return reply
 
 	case shardrpc.InstallShardArgs:
@@ -159,23 +168,39 @@ func (kv *KVServer) DoOp(req any) any {
 		}
 
 		kv.mu.Lock()
-		defer kv.mu.Unlock()
-		_, ok := kv.store[r.Shard]
-		if ok {
-			panic("Not implemented")
+		if kv.cfgNum > r.Num {
+			kv.mu.Unlock()
+			DPrintf(tDoOp, "S%d(cfg=%d), install, receive old num, reject req=%+v", kv.me, kv.cfgNum, r)
+			reply.Err = rpc.ErrWrongGroup
+			return reply
 		}
-		kv.store[r.Shard] = &keyValueStore{data: data}
+		kv.cfgNum = r.Num
+		kv.mu.Unlock()
 
+		store := kv.store[r.Shard]
+		store.mu.Lock()
+		defer store.mu.Unlock()
+
+		store.data = data
 		reply.Err = rpc.OK
-		DPrintf(tDoOp, "S%d, install args, req=%+v, store=%+v, reply=%+v", kv.me, r, data, reply.Err)
+		DPrintf(tDoOp, "S%d, install args, req=%+v, store=%+v, reply=%+v", kv.me, r, store, reply.Err)
 		return reply
 
 	case shardrpc.DeleteShardArgs:
 		reply := shardrpc.DeleteShardReply{}
+
 		kv.mu.Lock()
-		defer kv.mu.Unlock()
+		if kv.cfgNum > r.Num {
+			kv.mu.Unlock()
+			DPrintf(tDoOp, "S%d(cfg=%d), install, receive old num, reject req=%+v", kv.me, kv.cfgNum, r)
+			reply.Err = rpc.ErrWrongGroup
+			return reply
+		}
+		kv.cfgNum = r.Num
+		kv.mu.Unlock()
+
 		DPrintf(tDoOp, "S%d, delete args, req=%+v, store=%+v", kv.me, r, kv.store[r.Shard])
-		delete(kv.store, r.Shard)
+		kv.store[r.Shard] = &keyValueStore{data: make(map[string]keyValue)}
 		reply.Err = rpc.OK
 		return reply
 
@@ -193,10 +218,10 @@ func (kv *KVServer) Snapshot() []byte {
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 
-	e.Encode(len(kv.store))
-	for shid, store := range kv.store {
+	e.Encode(kv.cfgNum)
+
+	for _, store := range kv.store {
 		store.mu.Lock()
-		e.Encode(shid)
 		e.Encode(store.data)
 		store.mu.Unlock()
 	}
@@ -212,30 +237,16 @@ func (kv *KVServer) Restore(data []byte) {
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
 
-	var size int
-	if d.Decode(&size) != nil {
-		log.Fatalf("%v couldn't decode size of the stores", kv.me)
+	if d.Decode(&kv.cfgNum) != nil {
+		log.Fatalf("%v couldn't decode cfgnum", kv.me)
 	}
 
-	for range size {
-		var shid shardcfg.Tshid
-		var data map[string]keyValue
-
-		if d.Decode(&shid) != nil {
-			log.Fatalf("%v couldn't decode shard id", kv.me)
+	for i := range kv.store {
+		kv.store[i].mu.Lock()
+		if d.Decode(&kv.store[i].data) != nil {
+			log.Fatalf("%v couldn't decode stored data: %d", kv.me, i)
 		}
-		if d.Decode(&data) != nil {
-			log.Fatalf("%v couldn't decode stored data", kv.me)
-		}
-
-		store, ok := kv.store[shid]
-		if !ok {
-			kv.store[shid] = &keyValueStore{data: data}
-		} else {
-			store.mu.Lock()
-			kv.store[shid].data = data
-			store.mu.Unlock()
-		}
+		kv.store[i].mu.Unlock()
 	}
 	DPrintf(tRestore, "S%d store: %+v", kv.me, kv.store)
 }
@@ -247,7 +258,7 @@ func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
 	DPrintf(tServerGet, "S%d, get, req=%v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
 	DPrintf(tServerGet, "S%d, get return, req=%v, ret=%v", kv.me, *args, *reply)
-	if err == rpc.ErrWrongLeader {
+	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
 		r := rep.(rpc.GetReply)
@@ -264,7 +275,7 @@ func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 	DPrintf(tServerPut, "S%d, put, req=%v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
 	DPrintf(tServerPut, "S%d, put return, req=%v, ret=%v", kv.me, *args, *reply)
-	if err == rpc.ErrWrongLeader {
+	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
 		r := rep.(rpc.PutReply)
@@ -279,7 +290,7 @@ func (kv *KVServer) FreezeShard(args *shardrpc.FreezeShardArgs, reply *shardrpc.
 	DPrintf(tServerFreezeShard, "S%d, freeze, req=%+v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
 	DPrintf(tServerFreezeShard, "S%d, freeze return, req=%+v, ret=%+v", kv.me, *args, *reply)
-	if err == rpc.ErrWrongLeader {
+	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
 		r := rep.(shardrpc.FreezeShardReply)
@@ -295,7 +306,7 @@ func (kv *KVServer) InstallShard(args *shardrpc.InstallShardArgs, reply *shardrp
 	DPrintf(tServerInstallShard, "S%d, install, req=%+v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
 	DPrintf(tServerInstallShard, "S%d, install return, req=%+v, ret=%+v", kv.me, *args, *reply)
-	if err == rpc.ErrWrongLeader {
+	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
 		r := rep.(shardrpc.InstallShardReply)
@@ -309,7 +320,7 @@ func (kv *KVServer) DeleteShard(args *shardrpc.DeleteShardArgs, reply *shardrpc.
 	DPrintf(tServerDeleteShard, "S%d, delete, req=%+v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
 	DPrintf(tServerDeleteShard, "S%d, delete return, req=%+v, ret=%+v", kv.me, *args, *reply)
-	if err == rpc.ErrWrongLeader {
+	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
 		r := rep.(shardrpc.DeleteShardReply)
@@ -351,7 +362,9 @@ func StartServerShardGrp(servers []*labrpc.ClientEnd, gid tester.Tgid, me int, p
 	labgob.Register(rsm.Op{})
 
 	kv := &KVServer{gid: gid, me: me}
-	kv.store = make(map[shardcfg.Tshid]*keyValueStore)
+	for i := range kv.store {
+		kv.store[i] = &keyValueStore{data: make(map[string]keyValue)}
+	}
 	kv.rsm = rsm.MakeRSM(servers, me, persister, maxraftstate, kv)
 	// Your code here
 	return []tester.IService{kv, kv.rsm.Raft()}
