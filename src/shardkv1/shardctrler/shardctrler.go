@@ -9,6 +9,7 @@ import (
 
 	"6.5840/kvsrv1/rpc"
 	"6.5840/shardkv1/shardcfg"
+	"6.5840/shardkv1/shardgrp"
 
 	kvsrv "6.5840/kvsrv1"
 	kvtest "6.5840/kvtest1"
@@ -62,6 +63,52 @@ func (sck *ShardCtrler) InitConfig(cfg *shardcfg.ShardConfig) {
 // controller.
 func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 	// Your code here.
+	cfg := sck.Query()
+
+	DPrintf(tChangeConfig, "change config from %+v, to %+v", cfg, new)
+
+	for shid := range shardcfg.NShards {
+		sh := shardcfg.Tshid(shid)
+
+		oGid, oSrv, ok := cfg.GidServers(sh)
+		if !ok {
+			log.Fatalf("cannot get old servers for shard %v", shid)
+		}
+		nGid, nSrv, ok := new.GidServers(sh)
+		if !ok {
+			log.Fatalf("cannot get new servers for shard %v", shid)
+		}
+		DPrintf(tChangeConfig, "shard %v, change from gid %d to %d", sh, oGid, nGid)
+		if oGid != nGid {
+			oc := shardgrp.MakeClerk(sck.clnt, oSrv)
+			DPrintf(tChangeConfig, "shard %v, freeze old gid %d, servers: %v", sh, oGid, oSrv)
+			state, err := oc.FreezeShard(sh, new.Num)
+			if err != rpc.OK {
+				panic("not implemented")
+			}
+
+			DPrintf(tChangeConfig, "shard %v, install new gid %d, servers: %v", sh, nGid, nSrv)
+			nc := shardgrp.MakeClerk(sck.clnt, nSrv)
+			err = nc.InstallShard(sh, state, new.Num)
+			if err != rpc.OK {
+				panic("not implemented")
+			}
+
+			DPrintf(tChangeConfig, "shard %v, delete old gid %d, servers: %v", sh, oGid, oSrv)
+			err = oc.DeleteShard(sh, new.Num)
+			if err != rpc.OK {
+				panic("not implemented")
+			}
+		}
+	}
+
+	cfgString := new.String()
+	DPrintf(tChangeConfig, "submit new config: %+v", new)
+	err := sck.Put("cfg", cfgString, rpc.Tversion(cfg.Num))
+	DPrintf(tChangeConfig, "submitted new config: %+v", new)
+	if err != rpc.OK && err != rpc.ErrMaybe {
+		log.Fatalf("cannot change config in kvsrv, %+v: %v", err, cfgString)
+	}
 }
 
 // Return the current configuration
