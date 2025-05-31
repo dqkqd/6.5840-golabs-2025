@@ -29,8 +29,9 @@ type keyValue struct {
 }
 
 type keyValueStore struct {
-	data map[string]keyValue
-	mu   sync.Mutex
+	mu      sync.Mutex
+	data    map[string]keyValue
+	freezed bool
 }
 
 func (s *keyValueStore) get(key string) (keyValue, bool) {
@@ -147,6 +148,28 @@ func (kv *KVServer) DoOp(req any) any {
 		DPrintf(tDoOp, "S%d, freeze args, req=%+v, store=%+v, replyNum=%+v, replyErr=%+v", kv.me, r, store, reply.Num, reply.Err)
 		return reply
 
+	case shardrpc.InstallShardArgs:
+		reply := shardrpc.InstallShardReply{}
+
+		reader := bytes.NewBuffer(r.State)
+		d := labgob.NewDecoder(reader)
+		var data map[string]keyValue
+		if d.Decode(&data) != nil {
+			log.Fatalf("%v couldn't decode stored data to install", kv.me)
+		}
+
+		kv.mu.Lock()
+		defer kv.mu.Unlock()
+		_, ok := kv.store[r.Shard]
+		if ok {
+			panic("Not implemented")
+		}
+		kv.store[r.Shard] = &keyValueStore{data: data}
+
+		reply.Err = rpc.OK
+		DPrintf(tDoOp, "S%d, install args, req=%+v, store=%+v, reply=%+v", kv.me, r, data, reply.Err)
+		return reply
+
 	default:
 		log.Fatalf("invalid request, %T, %+v", req, req)
 	}
@@ -260,6 +283,15 @@ func (kv *KVServer) FreezeShard(args *shardrpc.FreezeShardArgs, reply *shardrpc.
 // Install the supplied state for the specified shard.
 func (kv *KVServer) InstallShard(args *shardrpc.InstallShardArgs, reply *shardrpc.InstallShardReply) {
 	// Your code here
+	DPrintf(tServerInstallShard, "S%d, install, req=%+v", kv.me, *args)
+	err, rep := kv.rsm.Submit(*args)
+	DPrintf(tServerInstallShard, "S%d, install return, req=%+v, ret=%+v", kv.me, *args, *reply)
+	if err == rpc.ErrWrongLeader {
+		reply.Err = err
+	} else {
+		r := rep.(shardrpc.InstallShardReply)
+		reply.Err = r.Err
+	}
 }
 
 // Delete the specified shard.

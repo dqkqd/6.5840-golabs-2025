@@ -86,7 +86,15 @@ func (ck *Clerk) FreezeShard(s shardcfg.Tshid, num shardcfg.Tnum) ([]byte, rpc.E
 
 func (ck *Clerk) InstallShard(s shardcfg.Tshid, state []byte, num shardcfg.Tnum) rpc.Err {
 	// Your code here
-	return ""
+	args := shardrpc.InstallShardArgs{Shard: s, State: state, Num: num}
+	for {
+		leader := ck.leader.Load()
+		reply := shardrpc.InstallShardReply{}
+		DPrintf(tClerkInstallShard, "C%p install args=%+v from leader=%d", ck.clnt, args, leader)
+		ok := ck.clnt.Call(ck.servers[leader], "KVServer.InstallShard", &args, &reply)
+		DPrintf(tClerkInstallShard, "C%p, ok=%v, install args=%+v from leader=%d, return %+v", ck.clnt, ok, args, leader, reply)
+		DPrintf(tClerkInstallShard, "C%p, Change leader from %d to %d", ck.clnt, leader, ck.leader.Load())
+	}
 }
 
 func (ck *Clerk) DeleteShard(s shardcfg.Tshid, num shardcfg.Tnum) rpc.Err {
