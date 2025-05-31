@@ -67,6 +67,9 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 
 	DPrintf(tChangeConfig, "change config from %+v, to %+v", cfg, new)
 
+	// record for deleting later
+	oldShardSevers := make(map[shardcfg.Tshid][]string)
+
 	for shid := range shardcfg.NShards {
 		sh := shardcfg.Tshid(shid)
 
@@ -78,9 +81,13 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 		if !ok {
 			log.Fatalf("cannot get new servers for shard %v", shid)
 		}
+
 		DPrintf(tChangeConfig, "shard %v, change from gid %d to %d", sh, oGid, nGid)
 		if oGid != nGid {
 			oc := shardgrp.MakeClerk(sck.clnt, oSrv)
+			nc := shardgrp.MakeClerk(sck.clnt, nSrv)
+			oldShardSevers[sh] = oSrv
+
 			DPrintf(tChangeConfig, "shard %v, freeze old gid %d, servers: %v", sh, oGid, oSrv)
 			state, err := oc.FreezeShard(sh, new.Num)
 			if err != rpc.OK {
@@ -88,14 +95,7 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 			}
 
 			DPrintf(tChangeConfig, "shard %v, install new gid %d, servers: %v", sh, nGid, nSrv)
-			nc := shardgrp.MakeClerk(sck.clnt, nSrv)
 			err = nc.InstallShard(sh, state, new.Num)
-			if err != rpc.OK {
-				panic("not implemented")
-			}
-
-			DPrintf(tChangeConfig, "shard %v, delete old gid %d, servers: %v", sh, oGid, oSrv)
-			err = oc.DeleteShard(sh, new.Num)
 			if err != rpc.OK {
 				panic("not implemented")
 			}
@@ -105,9 +105,18 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 	cfgString := new.String()
 	DPrintf(tChangeConfig, "submit new config: %+v", new)
 	err := sck.Put("cfg", cfgString, rpc.Tversion(cfg.Num))
-	DPrintf(tChangeConfig, "submitted new config: %+v", new)
 	if err != rpc.OK && err != rpc.ErrMaybe {
 		log.Fatalf("cannot change config in kvsrv, %+v: %v", err, cfgString)
+	}
+	DPrintf(tChangeConfig, "submitted new config: %+v", new)
+
+	for sh, srv := range oldShardSevers {
+		DPrintf(tChangeConfig, "shard %v, delete from old servers: %v", sh, srv)
+		oc := shardgrp.MakeClerk(sck.clnt, srv)
+		err = oc.DeleteShard(sh, new.Num)
+		if err != rpc.OK {
+			panic("not implemented")
+		}
 	}
 }
 
