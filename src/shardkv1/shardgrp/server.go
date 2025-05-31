@@ -124,6 +124,29 @@ func (kv *KVServer) DoOp(req any) any {
 		DPrintf(tDoOp, "S%d, put args, req=%+v, reply=%+v", kv.me, r, reply)
 		return reply
 
+	case shardrpc.FreezeShardArgs:
+		reply := shardrpc.FreezeShardReply{}
+		kv.mu.Lock()
+		store, ok := kv.store[r.Shard]
+		kv.mu.Unlock()
+		reply.Num = r.Num
+		if !ok {
+			// empty data, create one
+			store = &keyValueStore{data: make(map[string]keyValue)}
+			kv.store[r.Shard] = store
+		}
+
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		store.freezed = true
+		w := new(bytes.Buffer)
+		e := labgob.NewEncoder(w)
+		e.Encode(store.data)
+		reply.State = w.Bytes()
+		reply.Err = rpc.OK
+		DPrintf(tDoOp, "S%d, freeze args, req=%+v, store=%+v, replyNum=%+v, replyErr=%+v", kv.me, r, store, reply.Num, reply.Err)
+		return reply
+
 	default:
 		log.Fatalf("invalid request, %T, %+v", req, req)
 	}
@@ -221,6 +244,17 @@ func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 // shard) and return the key/values stored in that shard.
 func (kv *KVServer) FreezeShard(args *shardrpc.FreezeShardArgs, reply *shardrpc.FreezeShardReply) {
 	// Your code here
+	DPrintf(tServerFreezeShard, "S%d, freeze, req=%+v", kv.me, *args)
+	err, rep := kv.rsm.Submit(*args)
+	DPrintf(tServerFreezeShard, "S%d, freeze return, req=%+v, ret=%+v", kv.me, *args, *reply)
+	if err == rpc.ErrWrongLeader {
+		reply.Err = err
+	} else {
+		r := rep.(shardrpc.FreezeShardReply)
+		reply.Err = r.Err
+		reply.Num = r.Num
+		reply.State = r.State
+	}
 }
 
 // Install the supplied state for the specified shard.

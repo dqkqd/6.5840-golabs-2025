@@ -8,6 +8,7 @@ import (
 
 	"6.5840/kvsrv1/rpc"
 	"6.5840/shardkv1/shardcfg"
+	"6.5840/shardkv1/shardgrp/shardrpc"
 )
 
 type Clerk struct {
@@ -72,7 +73,15 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 
 func (ck *Clerk) FreezeShard(s shardcfg.Tshid, num shardcfg.Tnum) ([]byte, rpc.Err) {
 	// Your code here
-	return nil, ""
+	args := shardrpc.FreezeShardArgs{Shard: s, Num: num}
+	for {
+		leader := ck.leader.Load()
+		reply := shardrpc.FreezeShardReply{}
+		DPrintf(tClerkFreezeShard, "C%p freeze args=%+v, leader=%d", ck.clnt, args, leader)
+		ok := ck.clnt.Call(ck.servers[leader], "KVServer.FreezeShard", &args, &reply)
+		DPrintf(tClerkFreezeShard, "C%p, ok=%v, freeze args=%+v from leader=%d, return %+v", ck.clnt, ok, args, leader, reply)
+		DPrintf(tClerkFreezeShard, "C%p, Change leader from %d to %d", ck.clnt, leader, ck.leader.Load())
+	}
 }
 
 func (ck *Clerk) InstallShard(s shardcfg.Tshid, state []byte, num shardcfg.Tnum) rpc.Err {
