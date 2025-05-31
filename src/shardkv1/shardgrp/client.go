@@ -99,7 +99,15 @@ func (ck *Clerk) InstallShard(s shardcfg.Tshid, state []byte, num shardcfg.Tnum)
 
 func (ck *Clerk) DeleteShard(s shardcfg.Tshid, num shardcfg.Tnum) rpc.Err {
 	// Your code here
-	return ""
+	args := shardrpc.DeleteShardArgs{Shard: s, Num: num}
+	for {
+		leader := ck.leader.Load()
+		reply := shardrpc.DeleteShardReply{}
+		DPrintf(tClerkDeleteShard, "C%p delete args=%+v from leader=%d", ck.clnt, args, leader)
+		ok := ck.clnt.Call(ck.servers[leader], "KVServer.DeleteShard", &args, &reply)
+		DPrintf(tClerkDeleteShard, "C%p, ok=%v, delete args=%+v from leader=%d, return %+v", ck.clnt, ok, args, leader, reply)
+		DPrintf(tClerkDeleteShard, "C%p, Change leader from %d to %d", ck.clnt, leader, ck.leader.Load())
+	}
 }
 
 func (ck *Clerk) waitAndChangeLeader(currentLeader int64) {

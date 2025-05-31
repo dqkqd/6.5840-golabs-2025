@@ -170,6 +170,15 @@ func (kv *KVServer) DoOp(req any) any {
 		DPrintf(tDoOp, "S%d, install args, req=%+v, store=%+v, reply=%+v", kv.me, r, data, reply.Err)
 		return reply
 
+	case shardrpc.DeleteShardArgs:
+		reply := shardrpc.DeleteShardReply{}
+		kv.mu.Lock()
+		defer kv.mu.Unlock()
+		DPrintf(tDoOp, "S%d, delete args, req=%+v, store=%+v", kv.me, r, kv.store[r.Shard])
+		delete(kv.store, r.Shard)
+		reply.Err = rpc.OK
+		return reply
+
 	default:
 		log.Fatalf("invalid request, %T, %+v", req, req)
 	}
@@ -297,6 +306,15 @@ func (kv *KVServer) InstallShard(args *shardrpc.InstallShardArgs, reply *shardrp
 // Delete the specified shard.
 func (kv *KVServer) DeleteShard(args *shardrpc.DeleteShardArgs, reply *shardrpc.DeleteShardReply) {
 	// Your code here
+	DPrintf(tServerDeleteShard, "S%d, delete, req=%+v", kv.me, *args)
+	err, rep := kv.rsm.Submit(*args)
+	DPrintf(tServerDeleteShard, "S%d, delete return, req=%+v, ret=%+v", kv.me, *args, *reply)
+	if err == rpc.ErrWrongLeader {
+		reply.Err = err
+	} else {
+		r := rep.(shardrpc.DeleteShardReply)
+		reply.Err = r.Err
+	}
 }
 
 // the tester calls Kill() when a KVServer instance won't
