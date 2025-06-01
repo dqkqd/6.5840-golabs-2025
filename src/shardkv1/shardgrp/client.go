@@ -141,7 +141,7 @@ func (ck *Clerk) DeleteShard(s shardcfg.Tshid, num shardcfg.Tnum) rpc.Err {
 }
 
 func (ck *Clerk) wait() {
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 }
 
 func (ck *Clerk) waitAndChangeLeader(currentLeader int64) {

@@ -147,7 +147,7 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 			DPrintf(tSubmitOk, "S%d: accept op=%+v, res=%+v", rsm.me, op, res)
 			return rpc.OK, res.result
 
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(10 * time.Millisecond):
 			currentTerm, isLeader := rsm.rf.GetState()
 			if !isLeader {
 				DPrintf(tSubmitErr, "S%d: reject op=%+v, not a leader in term %d", rsm.me, op, term)

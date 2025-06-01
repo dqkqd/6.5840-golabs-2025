@@ -98,6 +98,6 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 }
 
 func (ck *Clerk) waitAndChangeLeader(currentLeader int64) {
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 	ck.leader.CompareAndSwap(currentLeader, (currentLeader+1)%int64(len(ck.servers)))
 }

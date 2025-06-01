@@ -10,6 +10,7 @@ package shardkv
 
 import (
 	"log"
+	"time"
 
 	"6.5840/kvsrv1/rpc"
 	kvtest "6.5840/kvtest1"
@@ -66,4 +67,8 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 	}
 	c := shardgrp.MakeClerk(ck.clnt, servers)
 	return c.Put(key, value, version)
+}
+
+func (ck *Clerk) wait() {
+	time.Sleep(10 * time.Millisecond)
 }
