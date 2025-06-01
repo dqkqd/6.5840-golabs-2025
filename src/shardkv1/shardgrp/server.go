@@ -23,15 +23,23 @@ const (
 	kvErrVersion
 )
 
+type storeStage = int
+
+const (
+	ssInit storeStage = iota
+	ssFreezed
+	ssDeleted
+)
+
 type keyValue struct {
 	Value   string
 	Version uint64
 }
 
 type keyValueStore struct {
-	mu      sync.Mutex
-	data    map[string]keyValue
-	freezed bool
+	mu     sync.Mutex
+	data   map[string]keyValue
+	status storeStage
 }
 
 func (s *keyValueStore) get(key string) (keyValue, bool) {
@@ -85,8 +93,8 @@ func (kv *KVServer) DoOp(req any) any {
 		store.mu.Lock()
 		defer store.mu.Unlock()
 
-		if store.freezed {
-			DPrintf(tDoOp, "S%d, get args, reject shard %v is freezed, req=%+v", kv.me, r, shid)
+		if store.status == ssFreezed || store.status == ssDeleted {
+			DPrintf(tDoOp, "S%d, get args, reject shard %v is freezed or deleted, req=%+v", kv.me, r, shid)
 			reply.Err = rpc.ErrWrongGroup
 			return reply
 		}
@@ -110,10 +118,14 @@ func (kv *KVServer) DoOp(req any) any {
 		store.mu.Lock()
 		defer store.mu.Unlock()
 
-		if store.freezed {
+		if store.status == ssFreezed {
 			reply.Err = rpc.ErrWrongGroup
 			DPrintf(tDoOp, "S%d, put args, reject shard %v is freezed, req=%+v", kv.me, r, shid)
 			return reply
+		}
+
+		if store.status == ssDeleted {
+			store.status = ssInit
 		}
 
 		err := store.put(r.Key, r.Value, uint64(r.Version))
@@ -144,11 +156,12 @@ func (kv *KVServer) DoOp(req any) any {
 		store := kv.store[r.Shard]
 		store.mu.Lock()
 		defer store.mu.Unlock()
-
-		if store.freezed {
-			DPrintf(tDoOp, "S%d(cfg=%d), freeze, already freezed reject req=%+v", kv.me, r.Num, r)
+		if store.status == ssDeleted {
+			DPrintf(tDoOp, "S%d(cfg=%d), freeze, cannot freeze deleted store, reject req=%+v", kv.me, kv.cfgNum, r)
+			reply.Err = rpc.ErrWrongGroup
+			return reply
 		}
-		store.freezed = true
+		store.status = ssFreezed
 
 		w := new(bytes.Buffer)
 		e := labgob.NewEncoder(w)
@@ -183,9 +196,9 @@ func (kv *KVServer) DoOp(req any) any {
 		defer store.mu.Unlock()
 
 		store.data = data
-		store.freezed = false
+		store.status = ssInit
 		reply.Err = rpc.OK
-		DPrintf(tDoOp, "S%d, install args, req.Shard=%+v, req.Num=%+v, store=%+v, reply=%+v", kv.me, r.Shard, r.Num, store.data, reply.Err)
+		DPrintf(tDoOp, "S%d, install success, req.Shard=%+v, req.Num=%+v, store=%+v, reply=%+v", kv.me, r.Shard, r.Num, store.data, reply.Err)
 		return reply
 
 	case shardrpc.DeleteShardArgs:
@@ -194,7 +207,7 @@ func (kv *KVServer) DoOp(req any) any {
 		kv.mu.Lock()
 		if kv.cfgNum > r.Num {
 			kv.mu.Unlock()
-			DPrintf(tDoOp, "S%d(cfg=%d), install, receive old num, reject req=%+v", kv.me, kv.cfgNum, r)
+			DPrintf(tDoOp, "S%d(cfg=%d), delete, receive old num, reject req=%+v", kv.me, kv.cfgNum, r)
 			reply.Err = rpc.ErrWrongGroup
 			return reply
 		}
@@ -204,9 +217,9 @@ func (kv *KVServer) DoOp(req any) any {
 		store := kv.store[r.Shard]
 		store.mu.Lock()
 		defer store.mu.Unlock()
-		DPrintf(tDoOp, "S%d, delete args, req=%+v, store=%+v", kv.me, r, store.data)
-		// just clear the data, do not unfreeze it
+		DPrintf(tDoOp, "S%d, delete success, req=%+v, store=%+v", kv.me, r, store.data)
 		clear(store.data)
+		store.status = ssDeleted
 
 		reply.Err = rpc.OK
 		return reply
