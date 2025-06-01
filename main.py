@@ -57,7 +57,18 @@ class KvRaftCommand(enum.StrEnum):
 
 @enum.unique
 class ShardKvCommand(enum.StrEnum):
+    Test5A = "5A"
+    TestStaticOneShardGroup5A = "TestStaticOneShardGroup5A"
+    TestJoinBasic5A = "TestJoinBasic5A"
+    TestDeleteBasic5A = "TestDeleteBasic5A"
     TestJoinLeaveBasic5A = "TestJoinLeaveBasic5A"
+    TestProgressJoin5A = "TestProgressJoin5A"
+    TestManyJoinLeaveReliable5A = "TestManyJoinLeaveReliable5A"
+    TestManyJoinLeaveUnreliable5A = "TestManyJoinLeaveUnreliable5A"
+    TestOneConcurrentClerkReliable5A = "TestOneConcurrentClerkReliable5A"
+    TestManyConcurrentClerkReliable5A = "TestManyConcurrentClerkReliable5A"
+    TestManyConcurrentClerkUnreliable5A = "TestManyConcurrentClerkUnreliable5A"
+    TestOneConcurrentClerkUnreliable5A = "TestOneConcurrentClerkUnreliable5A"
 
 
 @app.command()
@@ -181,7 +192,7 @@ def run_all(
 @app.command()
 def extract_log(pattern: str):
     outdir = output_dir()
-    path = next(outdir.glob("*"))
+    path = next(filter(lambda x: not x.suffix == ".out", outdir.glob("*")))
     new_output_file = path.with_suffix(".out")
     new_output_file.touch()
 
