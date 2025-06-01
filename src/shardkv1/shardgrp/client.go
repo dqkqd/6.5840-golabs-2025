@@ -79,7 +79,7 @@ func (ck *Clerk) FreezeShard(s shardcfg.Tshid, num shardcfg.Tnum) ([]byte, rpc.E
 		reply := shardrpc.FreezeShardReply{}
 		DPrintf(tClerkFreezeShard, "C%p freeze args=%+v, leader=%d", ck.clnt, args, leader)
 		ok := ck.clnt.Call(ck.servers[leader], "KVServer.FreezeShard", &args, &reply)
-		DPrintf(tClerkFreezeShard, "C%p, ok=%v, freeze args=%+v from leader=%d, return %+v", ck.clnt, ok, args, leader, reply)
+		DPrintf(tClerkFreezeShard, "C%p, ok=%v, freeze args=%+v from leader=%d, reply.Num=%+v, reply.Err=%+v", ck.clnt, ok, args, leader, reply.Num, reply.Err)
 		if !ok || reply.Err == rpc.ErrWrongLeader {
 			ck.waitAndChangeLeader(leader)
 		} else {
@@ -95,9 +95,9 @@ func (ck *Clerk) InstallShard(s shardcfg.Tshid, state []byte, num shardcfg.Tnum)
 	for {
 		leader := ck.leader.Load()
 		reply := shardrpc.InstallShardReply{}
-		DPrintf(tClerkInstallShard, "C%p install args=%+v from leader=%d", ck.clnt, args, leader)
+		DPrintf(tClerkInstallShard, "C%p install args.Shard=%v, args.Num=%v from leader=%d", ck.clnt, args.Shard, args.Num, leader)
 		ok := ck.clnt.Call(ck.servers[leader], "KVServer.InstallShard", &args, &reply)
-		DPrintf(tClerkInstallShard, "C%p, ok=%v, install args=%+v from leader=%d, return %+v", ck.clnt, ok, args, leader, reply)
+		DPrintf(tClerkInstallShard, "C%p ok=%v, install args.Shard=%v, args.Num=%v from leader=%d, return %+v", ck.clnt, ok, args.Shard, args.Num, leader, reply)
 		if !ok || reply.Err == rpc.ErrWrongLeader {
 			ck.waitAndChangeLeader(leader)
 		} else {

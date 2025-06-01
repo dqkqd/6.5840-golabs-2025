@@ -257,7 +257,7 @@ func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
 	// of Submit() into a GetReply: rep.(rpc.GetReply)
 	DPrintf(tServerGet, "S%d, get, req=%v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
-	DPrintf(tServerGet, "S%d, get return, req=%v, ret=%v", kv.me, *args, *reply)
+	DPrintf(tServerGet, "S%d, get return, req=%v, ret=%v", kv.me, *args, rep)
 	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
@@ -274,7 +274,7 @@ func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 	// of Submit() into a PutReply: rep.(rpc.PutReply)
 	DPrintf(tServerPut, "S%d, put, req=%v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
-	DPrintf(tServerPut, "S%d, put return, req=%v, ret=%v", kv.me, *args, *reply)
+	DPrintf(tServerPut, "S%d, put return, req=%v, ret=%v", kv.me, *args, rep)
 	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
@@ -289,7 +289,7 @@ func (kv *KVServer) FreezeShard(args *shardrpc.FreezeShardArgs, reply *shardrpc.
 	// Your code here
 	DPrintf(tServerFreezeShard, "S%d, freeze, req=%+v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
-	DPrintf(tServerFreezeShard, "S%d, freeze return, req=%+v, ret=%+v", kv.me, *args, *reply)
+	DPrintf(tServerFreezeShard, "S%d, freeze return, req=%+v, ret=%+v", kv.me, *args, rep)
 	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
@@ -303,9 +303,9 @@ func (kv *KVServer) FreezeShard(args *shardrpc.FreezeShardArgs, reply *shardrpc.
 // Install the supplied state for the specified shard.
 func (kv *KVServer) InstallShard(args *shardrpc.InstallShardArgs, reply *shardrpc.InstallShardReply) {
 	// Your code here
-	DPrintf(tServerInstallShard, "S%d, install, req=%+v", kv.me, *args)
+	DPrintf(tServerInstallShard, "S%d, install, req.Shard=%+v, req.Num=%+v", kv.me, args.Shard, args.Num)
 	err, rep := kv.rsm.Submit(*args)
-	DPrintf(tServerInstallShard, "S%d, install return, req=%+v, ret=%+v", kv.me, *args, *reply)
+	DPrintf(tServerInstallShard, "S%d, install return, req=%+v, ret=%+v", kv.me, *args, rep)
 	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
@@ -319,7 +319,7 @@ func (kv *KVServer) DeleteShard(args *shardrpc.DeleteShardArgs, reply *shardrpc.
 	// Your code here
 	DPrintf(tServerDeleteShard, "S%d, delete, req=%+v", kv.me, *args)
 	err, rep := kv.rsm.Submit(*args)
-	DPrintf(tServerDeleteShard, "S%d, delete return, req=%+v, ret=%+v", kv.me, *args, *reply)
+	DPrintf(tServerDeleteShard, "S%d, delete return, req=%+v, ret=%+v", kv.me, *args, rep)
 	if err == rpc.ErrWrongLeader || err == rpc.ErrWrongGroup {
 		reply.Err = err
 	} else {
