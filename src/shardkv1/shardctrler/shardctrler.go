@@ -46,24 +46,21 @@ func MakeShardCtrler(clnt *tester.Clnt) *ShardCtrler {
 // controller. In part A, this method doesn't need to do anything. In
 // B and C, this method implements recovery.
 func (sck *ShardCtrler) InitController() {
-	new, _, err := sck.Get(NEW_CFG_KEY)
+	new, _, err := sck.get(NEW_CFG_KEY)
 	// there is no new config
 	if err != rpc.OK {
 		return
 	}
 
-	cur, _, err := sck.Get(CFG_KEY)
+	cur, _, err := sck.get(CFG_KEY)
 	// there is no current config
 	if err != rpc.OK {
 		return
 	}
 
-	// need to rerun
-	newCfg := shardcfg.FromString(new)
-	curCfg := shardcfg.FromString(cur)
-
-	if newCfg.Num > curCfg.Num {
-		sck.ChangeConfigTo(newCfg)
+	// need to rerun migration
+	if new.Num > cur.Num {
+		sck.ChangeConfigTo(new)
 	}
 }
 
@@ -74,11 +71,7 @@ func (sck *ShardCtrler) InitController() {
 // lists shardgrp shardcfg.Gid1 for all shards.
 func (sck *ShardCtrler) InitConfig(cfg *shardcfg.ShardConfig) {
 	// Your code here
-	cfgString := cfg.String()
-	err := sck.Put(CFG_KEY, cfgString, 0)
-	if err != rpc.OK && err != rpc.ErrMaybe {
-		log.Fatalf("cannot put config %+v: %v", err, cfgString)
-	}
+	sck.put(CFG_KEY, cfg, 0)
 }
 
 // Called by the tester to ask the controller to change the
@@ -89,11 +82,10 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 	// Your code here.
 	DPrintf(tChangeConfig, "try to change configuration to: %+v", new)
 
-	curString, curVer, err := sck.Get(CFG_KEY)
+	cur, curVer, err := sck.get(CFG_KEY)
 	if err != rpc.OK {
-		log.Fatalf("cannot query config %+v", err)
+		log.Fatalf("cannot query current config %+v", err)
 	}
-	cur := shardcfg.FromString(curString)
 
 	if cur.Num >= new.Num {
 		DPrintf(tChangeConfig, "current configuration version is the latest: current=%v >= new=%v", cur.Num, new.Num)
@@ -102,24 +94,17 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 
 	// before starting, trying to save persist the new configuration first,
 	// allowing to recover in case of failure
-	existingNewString, ver, err := sck.Get(NEW_CFG_KEY)
+	existingNew, ver, err := sck.get(NEW_CFG_KEY)
 	if err != rpc.OK {
 		// no new configuration exist, we can add one to it
-		err = sck.Put(NEW_CFG_KEY, new.String(), 0)
-		if err != rpc.OK && err != rpc.ErrMaybe {
-			log.Fatalf("cannot add new configuration before changing config err=%v, cfg=%+v", err, new)
-		}
+		sck.put(NEW_CFG_KEY, new, 0)
 	} else {
-		existingNew := shardcfg.FromString(existingNewString)
 		if existingNew.Num > new.Num {
 			DPrintf(tChangeConfig, "the existing new configuration version is higher, go on with existing new: existingNew=%v >= new=%v", existingNew.Num, new.Num)
 			new = existingNew
 		} else {
 			DPrintf(tChangeConfig, "change new configuration in the store %+v", new)
-			err = sck.Put(NEW_CFG_KEY, new.String(), ver)
-			if err != rpc.OK && err != rpc.ErrMaybe {
-				log.Fatalf("cannot add new configuration before changing config err=%v, cfg=%+v", err, new)
-			}
+			sck.put(NEW_CFG_KEY, new, ver)
 		}
 	}
 
@@ -161,10 +146,7 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 	}
 
 	DPrintf(tChangeConfig, "submit the current config as the new one: %+v", new)
-	err = sck.Put(CFG_KEY, new.String(), curVer)
-	if err != rpc.OK && err != rpc.ErrMaybe {
-		log.Fatalf("cannot change the current config, %+v: %v", err, cur)
-	}
+	sck.put(CFG_KEY, new, curVer)
 	DPrintf(tChangeConfig, "submitted, use the new config: %+v", new)
 
 	for sh, srv := range oldShardSevers {
@@ -180,10 +162,25 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 // Return the current configuration
 func (sck *ShardCtrler) Query() *shardcfg.ShardConfig {
 	// Your code here.
-	cfgString, _, err := sck.Get(CFG_KEY)
+	cfg, _, err := sck.get(CFG_KEY)
 	if err != rpc.OK {
 		log.Fatalf("cannot query config %+v", err)
 	}
-	cfg := shardcfg.FromString(cfgString)
 	return cfg
+}
+
+func (sck *ShardCtrler) get(key string) (*shardcfg.ShardConfig, rpc.Tversion, rpc.Err) {
+	s, version, err := sck.Get(key)
+	if err != rpc.OK {
+		return nil, version, err
+	}
+	cfg := shardcfg.FromString(s)
+	return cfg, version, err
+}
+
+func (sck *ShardCtrler) put(key string, cfg *shardcfg.ShardConfig, version rpc.Tversion) {
+	err := sck.Put(key, cfg.String(), version)
+	if err != rpc.OK && err != rpc.ErrMaybe {
+		log.Fatalf("cannot put config to key=%v, version=%v, cfg=%+v, err=%v", key, version, cfg, err)
+	}
 }
