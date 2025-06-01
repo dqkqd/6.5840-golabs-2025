@@ -183,6 +183,7 @@ func (kv *KVServer) DoOp(req any) any {
 		defer store.mu.Unlock()
 
 		store.data = data
+		store.freezed = false
 		reply.Err = rpc.OK
 		DPrintf(tDoOp, "S%d, install args, req.Shard=%+v, req.Num=%+v, store=%+v, reply=%+v", kv.me, r.Shard, r.Num, store.data, reply.Err)
 		return reply
@@ -200,8 +201,13 @@ func (kv *KVServer) DoOp(req any) any {
 		kv.cfgNum = r.Num
 		kv.mu.Unlock()
 
-		DPrintf(tDoOp, "S%d, delete args, req=%+v, store=%+v", kv.me, r, kv.store[r.Shard])
-		kv.store[r.Shard] = &keyValueStore{data: make(map[string]keyValue)}
+		store := kv.store[r.Shard]
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		DPrintf(tDoOp, "S%d, delete args, req=%+v, store=%+v", kv.me, r, store.data)
+		// just clear the data, do not unfreeze it
+		clear(store.data)
+
 		reply.Err = rpc.OK
 		return reply
 
