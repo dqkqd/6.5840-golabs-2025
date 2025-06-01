@@ -9,7 +9,6 @@ package shardkv
 //
 
 import (
-	"log"
 	"time"
 
 	"6.5840/kvsrv1/rpc"
@@ -47,26 +46,57 @@ func MakeClerk(clnt *tester.Clnt, sck *shardctrler.ShardCtrler) kvtest.IKVClerk 
 func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	// You will have to modify this function.
 	sh := shardcfg.Key2Shard(key)
-	cfg := ck.sck.Query()
-	_, servers, ok := cfg.GidServers(sh)
-	if !ok {
-		log.Fatalf("cannot get servers for shard %v, from key %v", sh, key)
+	DPrintf(tClerkGet, "C%p, Shardkv get key=%v from shard=%d", ck, key, sh)
+	for {
+		cfg := ck.sck.Query()
+		_, servers, ok := cfg.GidServers(sh)
+
+		DPrintf(tClerkGet, "C%p, Shardkv get key=%v from shard=%d, servers=%v", ck, key, sh, servers)
+		if !ok {
+			DPrintf(tClerkGet, "C%p, Shardkv get key=%v from shard=%d, servers=%v no response", ck, key, sh, servers)
+			ck.wait()
+			continue
+		}
+
+		c := shardgrp.MakeClerk(ck.clnt, servers)
+		value, version, err := c.Get(key)
+		if err == rpc.ErrWrongGroup {
+			DPrintf(tClerkGet, "C%p, Shardkv get key=%v from shard=%d, servers=%v wrong group", ck, key, sh, servers)
+			ck.wait()
+			continue
+		}
+
+		return value, version, err
+
 	}
-	c := shardgrp.MakeClerk(ck.clnt, servers)
-	return c.Get(key)
 }
 
 // Put a key to a shard group.
 func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 	// You will have to modify this function.
 	sh := shardcfg.Key2Shard(key)
-	cfg := ck.sck.Query()
-	_, servers, ok := cfg.GidServers(sh)
-	if !ok {
-		log.Fatalf("cannot get servers for shard %v, from key %v", sh, key)
+	DPrintf(tClerkPut, "C%p, Shardkv put key=%v from shard=%d", ck, key, sh)
+	for {
+		cfg := ck.sck.Query()
+		_, servers, ok := cfg.GidServers(sh)
+
+		DPrintf(tClerkPut, "C%p, Shardkv put key=%v from shard=%d, servers=%v", ck, key, sh, servers)
+		if !ok {
+			DPrintf(tClerkPut, "C%p, Shardkv put key=%v from shard=%d, servers=%v no response", ck, key, sh, servers)
+			ck.wait()
+			continue
+		}
+
+		c := shardgrp.MakeClerk(ck.clnt, servers)
+		err := c.Put(key, value, version)
+		if err == rpc.ErrWrongGroup {
+			DPrintf(tClerkPut, "C%p, Shardkv get key=%v from shard=%d, servers=%v wrong group", ck, key, sh, servers)
+			ck.wait()
+			continue
+		}
+
+		return err
 	}
-	c := shardgrp.MakeClerk(ck.clnt, servers)
-	return c.Put(key, value, version)
 }
 
 func (ck *Clerk) wait() {

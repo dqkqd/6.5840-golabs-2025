@@ -36,9 +36,6 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 		DPrintf(tClerkGet, "C%p, ok=%v, get args=%v from leader=%d, return %v", ck.clnt, ok, args, leader, reply)
 		if !ok || reply.Err == rpc.ErrWrongLeader {
 			ck.waitAndChangeLeader(leader)
-		} else if reply.Err == rpc.ErrWrongGroup {
-			// change config, wait abit before re-requesting
-			ck.wait()
 		} else {
 			return reply.Value, reply.Version, reply.Err
 		}
@@ -62,9 +59,6 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 			// we send request to a non leader, but it might be elected as the new leader right after that.
 			maybe = true
 			ck.waitAndChangeLeader(leader)
-		} else if reply.Err == rpc.ErrWrongGroup {
-			// change config, wait abit before re-requesting
-			ck.wait()
 		} else {
 			// if we got `ErrVersion` with maybe, then this is not the first time we send it.
 			// we need to return `ErrMaybe` since we don't know the previous rpc was success or not
@@ -88,9 +82,6 @@ func (ck *Clerk) FreezeShard(s shardcfg.Tshid, num shardcfg.Tnum) ([]byte, rpc.E
 		DPrintf(tClerkFreezeShard, "C%p, ok=%v, freeze args=%+v from leader=%d, return %+v", ck.clnt, ok, args, leader, reply)
 		if !ok || reply.Err == rpc.ErrWrongLeader {
 			ck.waitAndChangeLeader(leader)
-		} else if reply.Err == rpc.ErrWrongGroup {
-			// change config, wait abit before re-requesting
-			ck.wait()
 		} else {
 			return reply.State, reply.Err
 		}
@@ -109,9 +100,6 @@ func (ck *Clerk) InstallShard(s shardcfg.Tshid, state []byte, num shardcfg.Tnum)
 		DPrintf(tClerkInstallShard, "C%p, ok=%v, install args=%+v from leader=%d, return %+v", ck.clnt, ok, args, leader, reply)
 		if !ok || reply.Err == rpc.ErrWrongLeader {
 			ck.waitAndChangeLeader(leader)
-		} else if reply.Err == rpc.ErrWrongGroup {
-			// change config, wait abit before re-requesting
-			ck.wait()
 		} else {
 			return reply.Err
 		}
@@ -130,9 +118,6 @@ func (ck *Clerk) DeleteShard(s shardcfg.Tshid, num shardcfg.Tnum) rpc.Err {
 		DPrintf(tClerkDeleteShard, "C%p, ok=%v, delete args=%+v from leader=%d, return %+v", ck.clnt, ok, args, leader, reply)
 		if !ok || reply.Err == rpc.ErrWrongLeader {
 			ck.waitAndChangeLeader(leader)
-		} else if reply.Err == rpc.ErrWrongGroup {
-			// change config, wait abit before re-requesting
-			ck.wait()
 		} else {
 			return reply.Err
 		}
