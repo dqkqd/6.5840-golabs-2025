@@ -16,6 +16,11 @@ import (
 	tester "6.5840/tester1"
 )
 
+const (
+	CFG_KEY     = "cfg"     // current configuration
+	NEW_CFG_KEY = "new_cfg" // the next configuration
+)
+
 // ShardCtrler for the controller and kv clerk.
 type ShardCtrler struct {
 	clnt *tester.Clnt
@@ -41,6 +46,25 @@ func MakeShardCtrler(clnt *tester.Clnt) *ShardCtrler {
 // controller. In part A, this method doesn't need to do anything. In
 // B and C, this method implements recovery.
 func (sck *ShardCtrler) InitController() {
+	new, _, err := sck.Get(NEW_CFG_KEY)
+	// there is no new config
+	if err != rpc.OK {
+		return
+	}
+
+	cur, _, err := sck.Get(CFG_KEY)
+	// there is no current config
+	if err != rpc.OK {
+		return
+	}
+
+	// need to rerun
+	newCfg := shardcfg.FromString(new)
+	curCfg := shardcfg.FromString(cur)
+
+	if newCfg.Num > curCfg.Num {
+		sck.ChangeConfigTo(newCfg)
+	}
 }
 
 // Called once by the tester to supply the first configuration.  You
@@ -51,7 +75,7 @@ func (sck *ShardCtrler) InitController() {
 func (sck *ShardCtrler) InitConfig(cfg *shardcfg.ShardConfig) {
 	// Your code here
 	cfgString := cfg.String()
-	err := sck.Put("cfg", cfgString, 0)
+	err := sck.Put(CFG_KEY, cfgString, 0)
 	if err != rpc.OK && err != rpc.ErrMaybe {
 		log.Fatalf("cannot put config %+v: %v", err, cfgString)
 	}
@@ -63,9 +87,43 @@ func (sck *ShardCtrler) InitConfig(cfg *shardcfg.ShardConfig) {
 // controller.
 func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 	// Your code here.
-	cfg := sck.Query()
+	DPrintf(tChangeConfig, "try to change configuration to: %+v", new)
 
-	DPrintf(tChangeConfig, "change config from %+v, to %+v", cfg, new)
+	curString, curVer, err := sck.Get(CFG_KEY)
+	if err != rpc.OK {
+		log.Fatalf("cannot query config %+v", err)
+	}
+	cur := shardcfg.FromString(curString)
+
+	if cur.Num >= new.Num {
+		DPrintf(tChangeConfig, "current configuration version is the latest: current=%v >= new=%v", cur.Num, new.Num)
+		return
+	}
+
+	// before starting, trying to save persist the new configuration first,
+	// allowing to recover in case of failure
+	existingNewString, ver, err := sck.Get(NEW_CFG_KEY)
+	if err != rpc.OK {
+		// no new configuration exist, we can add one to it
+		err = sck.Put(NEW_CFG_KEY, new.String(), 0)
+		if err != rpc.OK && err != rpc.ErrMaybe {
+			log.Fatalf("cannot add new configuration before changing config err=%v, cfg=%+v", err, new)
+		}
+	} else {
+		existingNew := shardcfg.FromString(existingNewString)
+		if existingNew.Num > new.Num {
+			DPrintf(tChangeConfig, "the existing new configuration version is higher, go on with existing new: existingNew=%v >= new=%v", existingNew.Num, new.Num)
+			new = existingNew
+		} else {
+			DPrintf(tChangeConfig, "change new configuration in the store %+v", new)
+			err = sck.Put(NEW_CFG_KEY, new.String(), ver)
+			if err != rpc.OK && err != rpc.ErrMaybe {
+				log.Fatalf("cannot add new configuration before changing config err=%v, cfg=%+v", err, new)
+			}
+		}
+	}
+
+	DPrintf(tChangeConfig, "try to change config from %+v, to %+v", cur, new)
 
 	// record for deleting later
 	oldShardSevers := make(map[shardcfg.Tshid][]string)
@@ -73,7 +131,7 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 	for shid := range shardcfg.NShards {
 		sh := shardcfg.Tshid(shid)
 
-		oGid, oSrv, ok := cfg.GidServers(sh)
+		oGid, oSrv, ok := cur.GidServers(sh)
 		if !ok {
 			log.Fatalf("cannot get old servers for shard %v", shid)
 		}
@@ -102,13 +160,12 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 		}
 	}
 
-	cfgString := new.String()
-	DPrintf(tChangeConfig, "submit new config: %+v", new)
-	err := sck.Put("cfg", cfgString, rpc.Tversion(cfg.Num))
+	DPrintf(tChangeConfig, "submit the current config as the new one: %+v", new)
+	err = sck.Put(CFG_KEY, new.String(), curVer)
 	if err != rpc.OK && err != rpc.ErrMaybe {
-		log.Fatalf("cannot change config in kvsrv, %+v: %v", err, cfgString)
+		log.Fatalf("cannot change the current config, %+v: %v", err, cur)
 	}
-	DPrintf(tChangeConfig, "submitted new config: %+v", new)
+	DPrintf(tChangeConfig, "submitted, use the new config: %+v", new)
 
 	for sh, srv := range oldShardSevers {
 		DPrintf(tChangeConfig, "shard %v, delete from old servers: %v", sh, srv)
@@ -123,7 +180,7 @@ func (sck *ShardCtrler) ChangeConfigTo(new *shardcfg.ShardConfig) {
 // Return the current configuration
 func (sck *ShardCtrler) Query() *shardcfg.ShardConfig {
 	// Your code here.
-	cfgString, _, err := sck.Get("cfg")
+	cfgString, _, err := sck.Get(CFG_KEY)
 	if err != rpc.OK {
 		log.Fatalf("cannot query config %+v", err)
 	}

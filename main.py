@@ -58,6 +58,7 @@ class KvRaftCommand(enum.StrEnum):
 @enum.unique
 class ShardKvCommand(enum.StrEnum):
     Test5A = "5A"
+    Test5B = "5B"
     TestStaticOneShardGroup5A = "TestStaticOneShardGroup5A"
     TestJoinBasic5A = "TestJoinBasic5A"
     TestDeleteBasic5A = "TestDeleteBasic5A"
