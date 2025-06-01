@@ -99,7 +99,7 @@ func (kv *KVServer) DoOp(req any) any {
 		} else {
 			reply.Err = rpc.ErrNoKey
 		}
-		DPrintf(tDoOp, "S%d, get args, req=%+v, reply=%+v", kv.me, r, reply)
+		DPrintf(tDoOp, "S%d, get args from shard %v, req=%+v, reply=%+v", kv.me, r, shid, reply)
 		return reply
 
 	case rpc.PutArgs:
@@ -112,6 +112,7 @@ func (kv *KVServer) DoOp(req any) any {
 
 		if store.freezed {
 			reply.Err = rpc.ErrWrongGroup
+			DPrintf(tDoOp, "S%d, put args, reject shard %v is freezed, req=%+v", kv.me, r, shid)
 			return reply
 		}
 
@@ -124,7 +125,7 @@ func (kv *KVServer) DoOp(req any) any {
 		case kvErrVersion:
 			reply.Err = rpc.ErrVersion
 		}
-		DPrintf(tDoOp, "S%d, put args, req=%+v, reply=%+v", kv.me, r, reply)
+		DPrintf(tDoOp, "S%d, put args from shard %v, req=%+v, reply=%+v", kv.me, shid, r, reply)
 		return reply
 
 	case shardrpc.FreezeShardArgs:
@@ -154,7 +155,7 @@ func (kv *KVServer) DoOp(req any) any {
 		e.Encode(store.data)
 		reply.State = w.Bytes()
 		reply.Err = rpc.OK
-		DPrintf(tDoOp, "S%d, freeze success, req=%+v, store=%+v, replyNum=%+v, replyErr=%+v", kv.me, r, store, reply.Num, reply.Err)
+		DPrintf(tDoOp, "S%d, freeze success, req=%+v, store=%+v, replyNum=%+v, replyErr=%+v", kv.me, r, store.data, reply.Num, reply.Err)
 		return reply
 
 	case shardrpc.InstallShardArgs:
@@ -170,7 +171,7 @@ func (kv *KVServer) DoOp(req any) any {
 		kv.mu.Lock()
 		if kv.cfgNum > r.Num {
 			kv.mu.Unlock()
-			DPrintf(tDoOp, "S%d(cfg=%d), install, receive old num, reject req=%+v", kv.me, kv.cfgNum, r)
+			DPrintf(tDoOp, "S%d(cfg=%d), install, receive old num, reject req.Shard=%+v, req.Num=%+v", kv.me, kv.cfgNum, r.Shard, r.Num)
 			reply.Err = rpc.ErrWrongGroup
 			return reply
 		}
@@ -183,7 +184,7 @@ func (kv *KVServer) DoOp(req any) any {
 
 		store.data = data
 		reply.Err = rpc.OK
-		DPrintf(tDoOp, "S%d, install args, req=%+v, store=%+v, reply=%+v", kv.me, r, store, reply.Err)
+		DPrintf(tDoOp, "S%d, install args, req.Shard=%+v, req.Num=%+v, store=%+v, reply=%+v", kv.me, r.Shard, r.Num, store.data, reply.Err)
 		return reply
 
 	case shardrpc.DeleteShardArgs:
