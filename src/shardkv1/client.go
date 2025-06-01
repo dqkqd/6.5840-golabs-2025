@@ -9,6 +9,7 @@ package shardkv
 //
 
 import (
+	"reflect"
 	"time"
 
 	"6.5840/kvsrv1/rpc"
@@ -47,17 +48,31 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 	// You will have to modify this function.
 	sh := shardcfg.Key2Shard(key)
 	DPrintf(tClerkGet, "C%p, Shardkv get key=%v from shard=%d", ck, key, sh)
+
+	// optimization, store the latest query server, so that client can avoid putting data in the old configurate servers
+	oldServers := make([]string, 0)
+
 	for {
 		cfg := ck.sck.Query()
 		_, servers, ok := cfg.GidServers(sh)
 
-		DPrintf(tClerkGet, "C%p, Shardkv get key=%v from shard=%d, servers=%v", ck, key, sh, servers)
 		if !ok {
 			DPrintf(tClerkGet, "C%p, Shardkv get key=%v from shard=%d, servers=%v no response", ck, key, sh, servers)
 			ck.wait()
 			continue
 		}
 
+		if reflect.DeepEqual(servers, oldServers) {
+			// sent the same request to these server before.
+			// This could be we changing configuration.
+			// should wait until the migrating is finished
+			DPrintf(tClerkGet, "C%p, Shardkv get key=%v from shard=%d, migrating to new config, wait...", ck, key, sh)
+			ck.wait()
+			continue
+		}
+		oldServers = servers
+
+		DPrintf(tClerkGet, "C%p, Shardkv get key=%v from shard=%d, servers=%v", ck, key, sh, servers)
 		c := shardgrp.MakeClerk(ck.clnt, servers)
 		value, version, err := c.Get(key)
 		if err == rpc.ErrWrongGroup {
@@ -76,17 +91,31 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 	// You will have to modify this function.
 	sh := shardcfg.Key2Shard(key)
 	DPrintf(tClerkPut, "C%p, Shardkv put key=%v from shard=%d", ck, key, sh)
+
+	// optimization, store the latest query server, so that client can avoid putting data in the old configurate servers
+	oldServers := make([]string, 0)
+
 	for {
 		cfg := ck.sck.Query()
 		_, servers, ok := cfg.GidServers(sh)
 
-		DPrintf(tClerkPut, "C%p, Shardkv put key=%v from shard=%d, servers=%v", ck, key, sh, servers)
 		if !ok {
-			DPrintf(tClerkPut, "C%p, Shardkv put key=%v from shard=%d, servers=%v no response", ck, key, sh, servers)
+			DPrintf(tClerkPut, "C%p, Shardkv put key=%v from shard=%d no response", ck, key, sh)
 			ck.wait()
 			continue
 		}
 
+		if reflect.DeepEqual(servers, oldServers) {
+			// sent the same request to these server before.
+			// This could be we changing configuration.
+			// should wait until the migrating is finished
+			DPrintf(tClerkPut, "C%p, Shardkv put key=%v from shard=%d, migrating to new config, wait...", ck, key, sh)
+			ck.wait()
+			continue
+		}
+		oldServers = servers
+
+		DPrintf(tClerkPut, "C%p, Shardkv put key=%v from shard=%d, servers=%v", ck, key, sh, servers)
 		c := shardgrp.MakeClerk(ck.clnt, servers)
 		err := c.Put(key, value, version)
 		if err == rpc.ErrWrongGroup {
